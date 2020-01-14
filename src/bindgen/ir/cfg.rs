@@ -329,7 +329,7 @@ impl Condition {
                 out.write("(");
                 for (i, condition) in conditions.iter().enumerate() {
                     if i != 0 {
-                        out.write(" || ");
+                        out.write(" or ");
                     }
                     condition.write(config, out);
                 }
@@ -339,15 +339,16 @@ impl Condition {
                 out.write("(");
                 for (i, condition) in conditions.iter().enumerate() {
                     if i != 0 {
-                        out.write(" && ");
+                        out.write(" and ");
                     }
                     condition.write(config, out);
                 }
                 out.write(")");
             }
             Condition::Not(ref condition) => {
-                out.write("!");
+                out.write("not (");
                 condition.write(config, out);
+                out.write(")");
             }
         }
     }
@@ -361,16 +362,18 @@ pub trait ConditionWrite {
 impl ConditionWrite for Option<Condition> {
     fn write_before<F: Write>(&self, config: &Config, out: &mut SourceWriter<F>) {
         if let Some(ref cfg) = *self {
-            out.write("#if ");
+            out.write("when ");
             cfg.write(config, out);
+            out.write(":");
             out.new_line();
+            out.indent();
         }
     }
 
     fn write_after<F: Write>(&self, _config: &Config, out: &mut SourceWriter<F>) {
         if self.is_some() {
+            out.dedent();
             out.new_line();
-            out.write("#endif");
         }
     }
 }

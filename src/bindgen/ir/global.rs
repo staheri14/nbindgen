@@ -7,7 +7,6 @@ use std::io::Write;
 use syn;
 
 use crate::bindgen::config::Config;
-use crate::bindgen::declarationtyperesolver::DeclarationTypeResolver;
 use crate::bindgen::dependencies::Dependencies;
 use crate::bindgen::ir::{AnnotationSet, Cfg, Documentation, Item, ItemContainer, Path, Type};
 use crate::bindgen::library::Library;
@@ -96,10 +95,6 @@ impl Item for Static {
         self.ty.rename_for_config(config, &Default::default());
     }
 
-    fn resolve_declaration_types(&mut self, resolver: &DeclarationTypeResolver) {
-        self.ty.resolve_declaration_types(resolver);
-    }
-
     fn add_dependencies(&self, library: &Library, out: &mut Dependencies) {
         self.ty.add_dependencies(library, out);
     }
@@ -107,12 +102,19 @@ impl Item for Static {
 
 impl Source for Static {
     fn write<F: Write>(&self, config: &Config, out: &mut SourceWriter<F>) {
-        out.write("extern ");
-        if let Type::ConstPtr(..) = self.ty {
-        } else if !self.mutable {
-            out.write("const ");
+        if !self.mutable {
+            out.write("var "); // TODO: can't do let here but could do let + var
+        } else {
+            out.write("var ")
         }
+
+        write!(
+            out,
+            "{}* {{.importc: \"{}\".}}: ",
+            self.export_name(),
+            self.export_name()
+        );
+
         self.ty.write(config, out);
-        write!(out, " {};", self.export_name());
     }
 }

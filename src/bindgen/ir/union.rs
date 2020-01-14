@@ -6,8 +6,7 @@ use std::io::Write;
 
 use syn;
 
-use crate::bindgen::config::{Config, Language, LayoutConfig};
-use crate::bindgen::declarationtyperesolver::DeclarationTypeResolver;
+use crate::bindgen::config::{Config, LayoutConfig};
 use crate::bindgen::dependencies::Dependencies;
 use crate::bindgen::ir::SynFieldHelpers;
 use crate::bindgen::ir::{
@@ -15,8 +14,6 @@ use crate::bindgen::ir::{
     Repr, ReprAlign, ReprStyle, ToCondition, Type,
 };
 use crate::bindgen::library::Library;
-use crate::bindgen::mangle;
-use crate::bindgen::monomorph::Monomorphs;
 use crate::bindgen::rename::{IdentifierType, RenameRule};
 use crate::bindgen::utilities::{find_first_some, IterHelpers};
 use crate::bindgen::writer::{ListType, Source, SourceWriter};
@@ -100,28 +97,6 @@ impl Union {
             ty.simplify_standard_types();
         }
     }
-
-    pub fn is_generic(&self) -> bool {
-        self.generic_params.len() > 0
-    }
-
-    pub fn add_monomorphs(&self, library: &Library, out: &mut Monomorphs) {
-        // Generic unions can instantiate monomorphs only once they've been
-        // instantiated. See `instantiate_monomorph` for more details.
-        if self.is_generic() {
-            return;
-        }
-
-        for &(_, ref ty, _) in &self.fields {
-            ty.add_monomorphs(library, out);
-        }
-    }
-
-    pub fn mangle_paths(&mut self, monomorphs: &Monomorphs) {
-        for &mut (_, ref mut ty, _) in &mut self.fields {
-            ty.mangle_paths(monomorphs);
-        }
-    }
 }
 
 impl Item for Union {
@@ -147,16 +122,6 @@ impl Item for Union {
 
     fn container(&self) -> ItemContainer {
         ItemContainer::Union(self.clone())
-    }
-
-    fn collect_declaration_types(&self, resolver: &mut DeclarationTypeResolver) {
-        resolver.add_union(&self.path);
-    }
-
-    fn resolve_declaration_types(&mut self, resolver: &DeclarationTypeResolver) {
-        for &mut (_, ref mut ty, _) in &mut self.fields {
-            ty.resolve_declaration_types(resolver);
-        }
     }
 
     fn rename_for_config(&mut self, config: &Config) {
@@ -208,52 +173,6 @@ impl Item for Union {
             ty.add_dependencies_ignoring_generics(&self.generic_params, library, out);
         }
     }
-
-    fn instantiate_monomorph(
-        &self,
-        generic_values: &[Type],
-        library: &Library,
-        out: &mut Monomorphs,
-    ) {
-        assert!(
-            self.generic_params.len() > 0,
-            "{} is not generic",
-            self.path
-        );
-        assert!(
-            self.generic_params.len() == generic_values.len(),
-            "{} has {} params but is being instantiated with {} values",
-            self.path,
-            self.generic_params.len(),
-            generic_values.len(),
-        );
-
-        let mappings = self
-            .generic_params
-            .iter()
-            .zip(generic_values.iter())
-            .collect::<Vec<_>>();
-
-        let mangled_path = mangle::mangle_path(&self.path, generic_values);
-        let monomorph = Union::new(
-            mangled_path,
-            GenericParams::default(),
-            self.fields
-                .iter()
-                .map(|x| (x.0.clone(), x.1.specialize(&mappings), x.2.clone()))
-                .collect(),
-            self.alignment,
-            self.tuple_union,
-            self.cfg.clone(),
-            self.annotations.clone(),
-            self.documentation.clone(),
-        );
-
-        // Instantiate any monomorphs for any generic paths we may have just created.
-        monomorph.add_monomorphs(library, out);
-
-        out.insert_union(self, monomorph, generic_values.to_owned());
-    }
 }
 
 impl Source for Union {
@@ -263,20 +182,7 @@ impl Source for Union {
 
         self.documentation.write(config, out);
 
-        self.generic_params.write(config, out);
-
-        // The following results in
-        // C++ or C with Tag as style:
-        //   union Name {
-        // C with Type only style:
-        //   typedef union {
-        // C with Both as style:
-        //   typedef union Name {
-        if config.language == Language::C && config.style.generate_typedef() {
-            out.write("typedef ");
-        }
-
-        out.write("union");
+        /*
 
         if let Some(align) = self.alignment {
             match align {
@@ -292,34 +198,30 @@ impl Source for Union {
                 }
             }
         }
+        */
+        write!(out, "type {}* {{.union.}}", self.export_name());
+        self.generic_params.write(config, out);
 
-        if config.language == Language::Cxx || config.style.generate_tag() {
-            write!(out, " {}", self.export_name);
-        }
-
-        out.open_brace();
+        out.write(" = object");
+        out.new_line();
+        out.indent();
 
         if config.documentation {
-            out.write_vertical_source_list(&self.fields, ListType::Cap(";"));
+            out.write_vertical_source_list(&self.fields, ListType::Cap(""));
         } else {
             let vec: Vec<_> = self
                 .fields
                 .iter()
                 .map(|&(ref name, ref ty, _)| (name.clone(), ty.clone()))
                 .collect();
-            out.write_vertical_source_list(&vec[..], ListType::Cap(";"));
+            out.write_vertical_source_list(&vec[..], ListType::Cap(""));
         }
 
         if let Some(body) = config.export.extra_body(&self.path) {
             out.write_raw_block(body);
         }
 
-        if config.language == Language::C && config.style.generate_typedef() {
-            out.close_brace(false);
-            write!(out, " {};", self.export_name);
-        } else {
-            out.close_brace(true);
-        }
+        out.dedent();
 
         condition.write_after(config, out);
     }

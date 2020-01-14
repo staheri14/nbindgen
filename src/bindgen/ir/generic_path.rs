@@ -3,8 +3,7 @@ use std::ops::Deref;
 
 use syn;
 
-use crate::bindgen::config::{Config, Language};
-use crate::bindgen::declarationtyperesolver::{DeclarationType, DeclarationTypeResolver};
+use crate::bindgen::config::Config;
 use crate::bindgen::ir::{Path, Type};
 use crate::bindgen::utilities::IterHelpers;
 use crate::bindgen::writer::{Source, SourceWriter};
@@ -38,17 +37,16 @@ impl Deref for GenericParams {
 }
 
 impl Source for GenericParams {
-    fn write<F: Write>(&self, config: &Config, out: &mut SourceWriter<F>) {
-        if !self.0.is_empty() && config.language == Language::Cxx {
-            out.write("template<");
+    fn write<F: Write>(&self, _config: &Config, out: &mut SourceWriter<F>) {
+        if !self.0.is_empty() {
+            out.write("[");
             for (i, item) in self.0.iter().enumerate() {
                 if i != 0 {
                     out.write(", ");
                 }
-                write!(out, "typename {}", item);
+                write!(out, "{}", item);
             }
-            out.write(">");
-            out.new_line();
+            out.write("]");
         }
     }
 }
@@ -58,7 +56,6 @@ pub struct GenericPath {
     path: Path,
     export_name: String,
     generics: Vec<Type>,
-    ctype: Option<DeclarationType>,
 }
 
 impl GenericPath {
@@ -68,7 +65,6 @@ impl GenericPath {
             path,
             export_name,
             generics,
-            ctype: None,
         }
     }
 
@@ -89,10 +85,6 @@ impl GenericPath {
         &self.generics
     }
 
-    pub fn ctype(&self) -> Option<&DeclarationType> {
-        self.ctype.as_ref()
-    }
-
     pub fn name(&self) -> &str {
         self.path.name()
     }
@@ -108,10 +100,6 @@ impl GenericPath {
         if !generic_params.contains(&self.path) {
             config.export.rename(&mut self.export_name);
         }
-    }
-
-    pub fn resolve_declaration_types(&mut self, resolver: &DeclarationTypeResolver) {
-        self.ctype = resolver.type_for(&self.path);
     }
 
     pub fn load(path: &syn::Path) -> Result<Self, String> {

@@ -8,15 +8,14 @@ use std::io::Write;
 
 use syn::{self, UnOp};
 
-use crate::bindgen::config::{Config, Language};
-use crate::bindgen::declarationtyperesolver::DeclarationTypeResolver;
+use crate::bindgen::config::Config;
 use crate::bindgen::dependencies::Dependencies;
 use crate::bindgen::ir::{
     AnnotationSet, Cfg, ConditionWrite, Documentation, GenericParams, Item, ItemContainer, Path,
     Struct, ToCondition, Type,
 };
 use crate::bindgen::library::Library;
-use crate::bindgen::writer::{Source, SourceWriter};
+use crate::bindgen::writer::SourceWriter;
 use crate::bindgen::Bindings;
 
 #[derive(Debug, Clone)]
@@ -118,15 +117,15 @@ impl Literal {
                     syn::BinOp::Add(..) => "+",
                     syn::BinOp::Sub(..) => "-",
                     syn::BinOp::Mul(..) => "*",
-                    syn::BinOp::Div(..) => "/",
-                    syn::BinOp::Rem(..) => "%",
-                    syn::BinOp::And(..) => "&&",
-                    syn::BinOp::Or(..) => "||",
-                    syn::BinOp::BitXor(..) => "^",
-                    syn::BinOp::BitAnd(..) => "&",
-                    syn::BinOp::BitOr(..) => "|",
-                    syn::BinOp::Shl(..) => "<<",
-                    syn::BinOp::Shr(..) => ">>",
+                    syn::BinOp::Div(..) => "div",
+                    syn::BinOp::Rem(..) => "mod",
+                    syn::BinOp::And(..) => "and",
+                    syn::BinOp::Or(..) => "or",
+                    syn::BinOp::BitXor(..) => "xor",
+                    syn::BinOp::BitAnd(..) => "and",
+                    syn::BinOp::BitOr(..) => "or",
+                    syn::BinOp::Shl(..) => "shl",
+                    syn::BinOp::Shr(..) => "shr",
                     syn::BinOp::Eq(..) => "==",
                     syn::BinOp::Lt(..) => "<",
                     syn::BinOp::Le(..) => "<=",
@@ -184,7 +183,7 @@ impl Literal {
                 for field in fields {
                     let ident = match field.member {
                         syn::Member::Named(ref name) => name.to_string(),
-                        syn::Member::Unnamed(ref index) => format!("_{}", index.index),
+                        syn::Member::Unnamed(ref index) => format!("F{}", index.index),
                     };
                     let key = ident.to_string();
                     let value = Literal::load(&field.expr)?;
@@ -253,13 +252,8 @@ impl Literal {
                 fields,
                 path,
             } => {
-                if config.language == Language::C {
-                    write!(out, "({})", export_name);
-                } else {
-                    write!(out, "{}", export_name);
-                }
+                write!(out, "{}(", export_name);
 
-                write!(out, "{{ ");
                 let mut is_first_field = true;
                 // In C++, same order as defined is required.
                 let ordered_fields = out.bindings().struct_field_names(path);
@@ -270,15 +264,12 @@ impl Literal {
                         } else {
                             is_first_field = false;
                         }
-                        if config.language == Language::Cxx {
-                            write!(out, "/* .{} = */ ", ordered_key);
-                        } else {
-                            write!(out, ".{} = ", ordered_key);
-                        }
+                        write!(out, "{}: ", ordered_key);
+
                         lit.write(config, out);
                     }
                 }
-                write!(out, " }}");
+                write!(out, ")");
             }
         }
     }
@@ -404,34 +395,9 @@ impl Item for Constant {
         self.value.rename_for_config(config);
         self.ty.rename_for_config(config, &GenericParams::default()); // FIXME: should probably propagate something here
     }
-
-    fn resolve_declaration_types(&mut self, resolver: &DeclarationTypeResolver) {
-        self.ty.resolve_declaration_types(resolver);
-    }
 }
 
 impl Constant {
-    pub fn write_declaration<F: Write>(
-        &self,
-        config: &Config,
-        out: &mut SourceWriter<F>,
-        associated_to_struct: &Struct,
-    ) {
-        debug_assert!(self.associated_to.is_some());
-        debug_assert!(config.language == Language::Cxx);
-        debug_assert!(!associated_to_struct.is_transparent);
-        debug_assert!(config.structure.associated_constants_in_body);
-        debug_assert!(config.constant.allow_static_const);
-
-        if let Type::ConstPtr(..) = self.ty {
-            out.write("static ");
-        } else {
-            out.write("static const ");
-        }
-        self.ty.write(config, out);
-        write!(out, " {};", self.export_name())
-    }
-
     pub fn write<F: Write>(
         &self,
         config: &Config,
@@ -450,11 +416,7 @@ impl Constant {
 
         let associated_to_transparent = associated_to_struct.map_or(false, |s| s.is_transparent);
 
-        let in_body = associated_to_struct.is_some()
-            && config.language == Language::Cxx
-            && config.structure.associated_constants_in_body
-            && config.constant.allow_static_const
-            && !associated_to_transparent;
+        let in_body = associated_to_struct.is_some() && false && !associated_to_transparent;
 
         let condition = (&self.cfg).to_condition(config);
         condition.write_before(config, out);
@@ -489,21 +451,8 @@ impl Constant {
             _ => &self.value,
         };
 
-        if config.constant.allow_static_const && config.language == Language::Cxx {
-            out.write(if in_body { "inline " } else { "static " });
-            if let Type::ConstPtr(..) = self.ty {
-                // Nothing.
-            } else {
-                out.write("const ");
-            }
-            self.ty.write(config, out);
-            write!(out, " {} = ", name);
-            value.write(config, out);
-            write!(out, ";");
-        } else {
-            write!(out, "#define {} ", name);
-            value.write(config, out);
-        }
+        write!(out, "const {}* = ", name);
+        value.write(config, out);
         condition.write_after(config, out);
     }
 }

@@ -24,43 +24,9 @@ use clap::{App, Arg, ArgMatches};
 mod bindgen;
 mod logging;
 
-use crate::bindgen::{Bindings, Builder, Cargo, Config, Error, Language, Style};
+use crate::bindgen::{Bindings, Builder, Cargo, Config, Error};
 
 fn apply_config_overrides<'a>(config: &mut Config, matches: &ArgMatches<'a>) {
-    // We allow specifying a language to override the config default. This is
-    // used by compile-tests.
-    if let Some(lang) = matches.value_of("lang") {
-        config.language = match lang {
-            "C++" => Language::Cxx,
-            "c++" => Language::Cxx,
-            "C" => Language::C,
-            "c" => Language::C,
-            _ => {
-                error!("Unknown language specified.");
-                return;
-            }
-        };
-    }
-
-    if matches.is_present("cpp-compat") {
-        config.cpp_compat = true;
-    }
-
-    if let Some(style) = matches.value_of("style") {
-        config.style = match style {
-            "Both" => Style::Both,
-            "both" => Style::Both,
-            "Tag" => Style::Tag,
-            "tag" => Style::Tag,
-            "Type" => Style::Type,
-            "type" => Style::Type,
-            _ => {
-                error!("Unknown style specified.");
-                return;
-            }
-        }
-    }
-
     if matches.is_present("d") {
         config.parse.parse_deps = true;
     }
@@ -136,27 +102,6 @@ fn main() {
                 .long("config")
                 .value_name("PATH")
                 .help("Specify path to a `cbindgen.toml` config to use"),
-        )
-        .arg(
-            Arg::with_name("lang")
-                .short("l")
-                .long("lang")
-                .value_name("LANGUAGE")
-                .help("Specify the language to output bindings in")
-                .possible_values(&["c++", "C++", "c", "C"]),
-        )
-        .arg(
-            Arg::with_name("cpp-compat")
-                .long("cpp-compat")
-                .help("Whether to add C++ compatibility to generated C bindings")
-        )
-        .arg(
-            Arg::with_name("style")
-                .short("s")
-                .long("style")
-                .value_name("STYLE")
-                .help("Specify the declaration style to use for bindings")
-                .possible_values(&["Both", "both", "Tag", "tag", "Type", "type"]),
         )
         .arg(
             Arg::with_name("d")

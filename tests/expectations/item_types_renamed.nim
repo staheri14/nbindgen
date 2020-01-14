@@ -1,0 +1,2 @@
+
+type StyleOnlyThisShouldBeGenerated* = uint8

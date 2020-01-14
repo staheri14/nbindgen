@@ -1,0 +1,2 @@
+
+type OnlyThisShouldBeGenerated* = uint8

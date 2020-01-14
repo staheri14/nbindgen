@@ -1,60 +1,51 @@
-# `cbindgen` &emsp; [![Build Status]][travis] [![Latest Version]][crates.io] [![Api Rustdoc]][rustdoc] [![Rust](https://img.shields.io/badge/rust-1.32%2B-blue.svg?maxAge=3600)](https://github.com/eqrion/cbindgen)
+# `nbindgen` &emsp; [![Build Status]][travis] [![Latest Version]][crates.io] [![Api Rustdoc]][rustdoc] [![Rust](https://img.shields.io/badge/rust-1.32%2B-blue.svg?maxAge=3600)](https://github.com/arnetheduck/nbindgen)
 
-[Build Status]: https://api.travis-ci.org/eqrion/cbindgen.svg?branch=master
-[travis]: https://travis-ci.org/eqrion/cbindgen
-[Latest Version]: https://img.shields.io/crates/v/cbindgen.svg
-[crates.io]: https://crates.io/crates/cbindgen
+[Build Status]: https://api.travis-ci.org/arnetheduck/nbindgen.svg?branch=master
+[travis]: https://travis-ci.org/arnetheduck/nbindgen
+[Latest Version]: https://img.shields.io/crates/v/nbindgen.svg
+[crates.io]: https://crates.io/crates/nbindgen
 [Api Rustdoc]: https://img.shields.io/badge/api-rustdoc-blue.svg
-[rustdoc]: https://docs.rs/cbindgen
-
-
-
+[rustdoc]: https://docs.rs/nbindgen
 
 [Read the full user docs here!](docs.md)
 
+nbindgen creates Nim headers for Rust libraries which expose a public C-like API - if your library works with `cbindgen` it will likely work with `nbindgen` also.
 
-
-
-cbindgen creates C/C++11 headers for Rust libraries which expose a public C API.
+It is based on / a fork of [cbindgen](https://github.com/eqrion/cbindgen) - in fact, most of the code is the same and lots of it hasn't been updated for Nim yet and you'll find many out-of-date references to `cbindgen` and `C` stuff that needs updating.
 
 While you could do this by hand, it's not a particularly good use of your time. It's also much more likely to be error-prone than machine-generated headers that are based on your actual Rust code. The cbindgen developers have also worked closely with the developers of Rust to ensure that the headers we generate reflect actual guarantees about Rust's type layout and ABI.
 
-C++ headers are nice because we can use operator overloads, constructors, enum classes, and templates to make the API more ergonomic and Rust-like. C headers are nice because you can be more confident that whoever you're interoperating with can handle them. With cbindgen *you don't need to choose*! You can just tell it to emit both from the same Rust library.
+There are two ways to use nbindgen: as a standalone program, or as a library (presumably in your build.rs).
+There isn't really much practical difference, because nbindgen is a simple rust library with no interesting dependencies. Using it as a program means people building your software will need it installed. Using it in your library means people may have to build nbindgen more frequently (e.g. every time they update their rust compiler).
 
-There are two ways to use cbindgen: as a standalone program, or as a library (presumably in your build.rs).
-There isn't really much practical difference, because cbindgen is a simple rust library with no interesting dependencies. Using it as a program means people building your software will need it installed. Using it in your library means people may have to build cbindgen more frequently (e.g. every time they update their rust compiler).
-
-It's worth noting that the development of cbindgen has been largely adhoc, as features have been added to support the usecases of the maintainers. This means cbindgen may randomly fail to support some particular situation simply because no one has put in the effort to handle it yet. [Please file an issue if you run into such a situation](https://github.com/eqrion/cbindgen/issues/new). Although since we all have other jobs, you might need to do the implementation work too :)
-
-
-
+It's worth noting that the development of cbindgen has been largely adhoc, as features have been added to support the usecases of the maintainers. This means nbindgen may randomly fail to support some particular situation simply because no one has put in the effort to handle it yet. [Please file an issue if you run into such a situation](https://github.com/arnetheduck/nbindgen/issues/new). Although since we all have other jobs, you might need to do the implementation work too :)
 
 # Quick Start
 
-To install cbindgen, you just need to run
+To install nbindgen, you just need to run
 
 ```text
-cargo install --force cbindgen
+cargo install --force nbindgen
 ```
 
-(--force just makes it update to the latest cbindgen if it's already installed)
+(--force just makes it update to the latest nbindgen if it's already installed)
 
-To use cbindgen you need two things:
+To use nbindgen you need two things:
 
-* A configuration (cbindgen.toml, which can be empty to start)
+* A configuration (nbindgen.toml, which can be empty to start)
 * A Rust crate with a public C API
 
 Then all you need to do is run it:
 
 ```text
-cbindgen --config cbindgen.toml --crate my_rust_library --output my_header.h
+nbindgen --config nbindgen.toml --crate my_rust_library --output my_header.h
 ```
 
-See `cbindgen --help` for more options.
+See `nbindgen --help` for more options.
 
 [Read the full user docs here!](docs.md)
 
-[Get a template cbindgen.toml here.](template.toml)
+[Get a template nbindgen.toml here.](template.toml)
 
 
 
@@ -62,11 +53,12 @@ See `cbindgen --help` for more options.
 
 We don't currently have a nice tailored example application, but [the tests](tests/rust/) contain plenty of interesting examples of our features.
 
-You may also find it interesting to browse the projects that are using cbindgen in production:
+You may also find it interesting to browse the projects that are using nbindgen in production:
 
-* [milksnake](https://github.com/getsentry/milksnake)
-* [webrender](https://searchfox.org/mozilla-central/source/gfx/webrender_bindings) ([generated header](https://searchfox.org/mozilla-central/source/__GENERATED__/gfx/webrender_bindings/webrender_ffi_generated.h))
-* [stylo](https://searchfox.org/mozilla-central/source/layout/style) ([generated header](https://searchfox.org/mozilla-central/source/__GENERATED__/layout/style/ServoStyleConsts.h))
-* [wgpu](https://github.com/gfx-rs/wgpu/tree/master/wgpu-native) ([generated header](https://github.com/gfx-rs/wgpu/blob/master/ffi/wgpu.h))
+* who will be first?
 
-If you're using `cbindgen` and would like to be added to this list, please open a pull request!
+If you're using `nbindgen` and would like to be added to this list, please open a pull request!
+
+# Future direction
+
+The rust compiler generates `llvm` ir - so does [nlvm](https://github.com/arnetheduck/nlvm). It would be much better to fuse the two and use the llvm IR directly in a unified build. Until then, this is not a bad option :)

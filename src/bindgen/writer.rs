@@ -6,7 +6,7 @@ use std::cmp;
 use std::io;
 use std::io::Write;
 
-use crate::bindgen::config::{Braces, Config};
+use crate::bindgen::config::Config;
 use crate::bindgen::Bindings;
 
 /// A type of way to format a list.
@@ -121,12 +121,6 @@ impl<'a, F: Write> SourceWriter<'a, F> {
         }
     }
 
-    pub fn push_tab(&mut self) {
-        let spaces = self.spaces() - (self.spaces() % self.bindings.config.tab_width)
-            + self.bindings.config.tab_width;
-        self.spaces.push(spaces);
-    }
-
     pub fn pop_tab(&mut self) {
         assert!(!self.spaces.is_empty());
         self.spaces.pop();
@@ -145,30 +139,12 @@ impl<'a, F: Write> SourceWriter<'a, F> {
         }
     }
 
-    pub fn open_brace(&mut self) {
-        match self.bindings.config.braces {
-            Braces::SameLine => {
-                self.write(" {");
-                self.push_tab();
-                self.new_line();
-            }
-            Braces::NextLine => {
-                self.new_line();
-                self.write("{");
-                self.push_tab();
-                self.new_line();
-            }
-        }
+    pub fn indent(&mut self) {
+        self.push_set_spaces(self.spaces() + 2);
     }
 
-    pub fn close_brace(&mut self, semicolon: bool) {
-        self.pop_tab();
-        self.new_line();
-        if semicolon {
-            self.write("};");
-        } else {
-            self.write("}");
-        }
+    pub fn dedent(&mut self) {
+        self.push_set_spaces(self.spaces() - 2);
     }
 
     pub fn write(&mut self, text: &'static str) {

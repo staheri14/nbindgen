@@ -6,13 +6,11 @@ use std::collections::BTreeMap;
 use std::mem;
 
 use crate::bindgen::config::Config;
-use crate::bindgen::declarationtyperesolver::DeclarationTypeResolver;
 use crate::bindgen::dependencies::Dependencies;
 use crate::bindgen::ir::{
-    AnnotationSet, Cfg, Constant, Enum, OpaqueItem, Path, Static, Struct, Type, Typedef, Union,
+    AnnotationSet, Cfg, Constant, Enum, OpaqueItem, Path, Static, Struct, Typedef, Union,
 };
 use crate::bindgen::library::Library;
-use crate::bindgen::monomorph::Monomorphs;
 
 /// An item is any type of rust item besides a function
 pub trait Item {
@@ -29,17 +27,8 @@ pub trait Item {
 
     fn container(&self) -> ItemContainer;
 
-    fn collect_declaration_types(&self, _resolver: &mut DeclarationTypeResolver) {
-        unimplemented!()
-    }
-    fn resolve_declaration_types(&mut self, _resolver: &DeclarationTypeResolver) {
-        unimplemented!()
-    }
     fn rename_for_config(&mut self, _config: &Config) {}
     fn add_dependencies(&self, _library: &Library, _out: &mut Dependencies) {}
-    fn instantiate_monomorph(&self, _generics: &[Type], _library: &Library, _out: &mut Monomorphs) {
-        unreachable!("Cannot instantiate {} as a generic.", self.name())
-    }
 }
 
 #[derive(Debug, Clone)]

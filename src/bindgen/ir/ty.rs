@@ -7,15 +7,13 @@ use std::io::Write;
 
 use syn;
 
-use crate::bindgen::cdecl;
 use crate::bindgen::config::Config;
-use crate::bindgen::declarationtyperesolver::DeclarationTypeResolver;
 use crate::bindgen::dependencies::Dependencies;
+use crate::bindgen::ir::function;
 use crate::bindgen::ir::{Documentation, GenericParams, GenericPath, Path};
 use crate::bindgen::library::Library;
-use crate::bindgen::monomorph::Monomorphs;
 use crate::bindgen::utilities::IterHelpers;
-use crate::bindgen::writer::{Source, SourceWriter};
+use crate::bindgen::writer::{ListType, Source, SourceWriter};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum PrimitiveType {
@@ -90,48 +88,13 @@ impl PrimitiveType {
         }
     }
 
-    pub fn to_repr_rust(&self) -> &'static str {
-        match *self {
-            PrimitiveType::Void => "c_void",
-            PrimitiveType::Char => "c_char",
-            PrimitiveType::SChar => "c_schar",
-            PrimitiveType::UChar => "c_uchar",
-            PrimitiveType::Char32 => "char",
-            PrimitiveType::Short => "c_short",
-            PrimitiveType::Int => "c_int",
-            PrimitiveType::Long => "c_long",
-            PrimitiveType::LongLong => "c_longlong",
-            PrimitiveType::UShort => "c_ushort",
-            PrimitiveType::UInt => "c_uint",
-            PrimitiveType::ULong => "c_ulong",
-            PrimitiveType::ULongLong => "c_ulonglong",
-            PrimitiveType::Bool => "bool",
-            PrimitiveType::USize => "usize",
-            PrimitiveType::UInt8 => "u8",
-            PrimitiveType::UInt16 => "u16",
-            PrimitiveType::UInt32 => "u32",
-            PrimitiveType::UInt64 => "u64",
-            PrimitiveType::ISize => "isize",
-            PrimitiveType::Int8 => "i8",
-            PrimitiveType::Int16 => "i16",
-            PrimitiveType::Int32 => "i32",
-            PrimitiveType::Int64 => "i64",
-            PrimitiveType::Float => "f32",
-            PrimitiveType::Double => "f64",
-            PrimitiveType::SizeT => "size_t",
-            PrimitiveType::SSizeT => "ssize_t",
-            PrimitiveType::PtrDiffT => "ptrdiff_t",
-            PrimitiveType::VaList => "va_list",
-        }
-    }
-
-    pub fn to_repr_c(&self) -> &'static str {
+    pub fn to_repr_nim(&self) -> &'static str {
         match *self {
             PrimitiveType::Void => "void",
             PrimitiveType::Bool => "bool",
             PrimitiveType::Char => "char",
-            PrimitiveType::SChar => "signed char",
-            PrimitiveType::UChar => "unsigned char",
+            PrimitiveType::SChar => "int8",
+            PrimitiveType::UChar => "char",
             // NOTE: It'd be nice to use a char32_t, but:
             //
             //  * uchar.h is not present on mac (see #423).
@@ -140,49 +103,38 @@ impl PrimitiveType {
             //    the C++ spec only requires it to be the same size as
             //    uint_least32_t, which is _not_ guaranteed to be 4-bytes.
             //
-            PrimitiveType::Char32 => "uint32_t",
-            PrimitiveType::Short => "short",
-            PrimitiveType::Int => "int",
-            PrimitiveType::Long => "long",
-            PrimitiveType::LongLong => "long long",
-            PrimitiveType::UShort => "unsigned short",
-            PrimitiveType::UInt => "unsigned int",
-            PrimitiveType::ULong => "unsigned long",
-            PrimitiveType::ULongLong => "unsigned long long",
-            PrimitiveType::USize => "uintptr_t",
-            PrimitiveType::UInt8 => "uint8_t",
-            PrimitiveType::UInt16 => "uint16_t",
-            PrimitiveType::UInt32 => "uint32_t",
-            PrimitiveType::UInt64 => "uint64_t",
-            PrimitiveType::ISize => "intptr_t",
-            PrimitiveType::Int8 => "int8_t",
-            PrimitiveType::Int16 => "int16_t",
-            PrimitiveType::Int32 => "int32_t",
-            PrimitiveType::Int64 => "int64_t",
-            PrimitiveType::Float => "float",
-            PrimitiveType::Double => "double",
-            PrimitiveType::SizeT => "size_t",
-            PrimitiveType::SSizeT => "ssize_t",
+            PrimitiveType::Char32 => "uint32",
+            PrimitiveType::Short => "cshort",
+            PrimitiveType::Int => "cint",
+            PrimitiveType::Long => "clong",
+            PrimitiveType::LongLong => "clonglong",
+            PrimitiveType::UShort => "cushort",
+            PrimitiveType::UInt => "cuint",
+            PrimitiveType::ULong => "culong",
+            PrimitiveType::ULongLong => "culonglong",
+            PrimitiveType::USize => "uint",
+            PrimitiveType::UInt8 => "uint8",
+            PrimitiveType::UInt16 => "uint16",
+            PrimitiveType::UInt32 => "uint32",
+            PrimitiveType::UInt64 => "uint64",
+            PrimitiveType::ISize => "int",
+            PrimitiveType::Int8 => "int8",
+            PrimitiveType::Int16 => "int16",
+            PrimitiveType::Int32 => "int32",
+            PrimitiveType::Int64 => "int64",
+            PrimitiveType::Float => "float32",
+            PrimitiveType::Double => "float64",
+            PrimitiveType::SizeT => "uint",
+            PrimitiveType::SSizeT => "int",
             PrimitiveType::PtrDiffT => "ptrdiff_t",
             PrimitiveType::VaList => "va_list",
         }
-    }
-
-    fn can_cmp_order(&self) -> bool {
-        match *self {
-            PrimitiveType::Bool => false,
-            _ => true,
-        }
-    }
-
-    fn can_cmp_eq(&self) -> bool {
-        true
     }
 }
 
 impl fmt::Display for PrimitiveType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.to_repr_c())
+        write!(f, "{}", self.to_repr_nim())
     }
 }
 
@@ -211,8 +163,6 @@ impl ArrayLength {
 pub enum Type {
     ConstPtr(Box<Type>),
     Ptr(Box<Type>),
-    Ref(Box<Type>),
-    MutRef(Box<Type>),
     Path(GenericPath),
     Primitive(PrimitiveType),
     Array(Box<Type>, ArrayLength),
@@ -317,9 +267,9 @@ impl Type {
                                     if ident == "_" {
                                         wildcard_counter += 1;
                                         if wildcard_counter == 1 {
-                                            "_".to_owned()
+                                            "wild".to_owned()
                                         } else {
-                                            format!("_{}", wildcard_counter - 1)
+                                            format!("wild{}", wildcard_counter - 1)
                                         }
                                     } else {
                                         ident.to_string()
@@ -404,11 +354,9 @@ impl Type {
 
     pub fn replace_self_with(&mut self, self_ty: &Path) {
         match *self {
-            Type::Array(ref mut ty, ..)
-            | Type::MutRef(ref mut ty)
-            | Type::Ref(ref mut ty)
-            | Type::Ptr(ref mut ty)
-            | Type::ConstPtr(ref mut ty) => ty.replace_self_with(self_ty),
+            Type::Array(ref mut ty, ..) | Type::Ptr(ref mut ty) | Type::ConstPtr(ref mut ty) => {
+                ty.replace_self_with(self_ty)
+            }
             Type::Path(ref mut generic_path) => {
                 generic_path.replace_self_with(self_ty);
             }
@@ -428,8 +376,6 @@ impl Type {
             match *current {
                 Type::ConstPtr(ref ty) => current = ty,
                 Type::Ptr(ref ty) => current = ty,
-                Type::Ref(ref ty) => current = ty,
-                Type::MutRef(ref ty) => current = ty,
                 Type::Path(ref generic) => {
                     return Some(generic.path().clone());
                 }
@@ -446,43 +392,6 @@ impl Type {
         }
     }
 
-    pub fn specialize(&self, mappings: &[(&Path, &Type)]) -> Type {
-        match *self {
-            Type::ConstPtr(ref ty) => Type::ConstPtr(Box::new(ty.specialize(mappings))),
-            Type::Ptr(ref ty) => Type::Ptr(Box::new(ty.specialize(mappings))),
-            Type::Ref(ref ty) => Type::Ref(Box::new(ty.specialize(mappings))),
-            Type::MutRef(ref ty) => Type::MutRef(Box::new(ty.specialize(mappings))),
-            Type::Path(ref generic_path) => {
-                for &(param, value) in mappings {
-                    if generic_path.path() == param {
-                        return value.clone();
-                    }
-                }
-
-                let specialized = GenericPath::new(
-                    generic_path.path().clone(),
-                    generic_path
-                        .generics()
-                        .iter()
-                        .map(|x| x.specialize(mappings))
-                        .collect(),
-                );
-                Type::Path(specialized)
-            }
-            Type::Primitive(ref primitive) => Type::Primitive(primitive.clone()),
-            Type::Array(ref ty, ref constant) => {
-                Type::Array(Box::new(ty.specialize(mappings)), constant.clone())
-            }
-            Type::FuncPtr(ref ret, ref args) => Type::FuncPtr(
-                Box::new(ret.specialize(mappings)),
-                args.iter()
-                    .cloned()
-                    .map(|(name, ty)| (name, ty.specialize(mappings)))
-                    .collect(),
-            ),
-        }
-    }
-
     pub fn add_dependencies_ignoring_generics(
         &self,
         generic_params: &GenericParams,
@@ -494,9 +403,6 @@ impl Type {
                 ty.add_dependencies_ignoring_generics(generic_params, library, out);
             }
             Type::Ptr(ref ty) => {
-                ty.add_dependencies_ignoring_generics(generic_params, library, out);
-            }
-            Type::Ref(ref ty) | Type::MutRef(ref ty) => {
                 ty.add_dependencies_ignoring_generics(generic_params, library, out);
             }
             Type::Path(ref generic) => {
@@ -542,51 +448,12 @@ impl Type {
         self.add_dependencies_ignoring_generics(&GenericParams::default(), library, out)
     }
 
-    pub fn add_monomorphs(&self, library: &Library, out: &mut Monomorphs) {
-        match *self {
-            Type::ConstPtr(ref ty) => {
-                ty.add_monomorphs(library, out);
-            }
-            Type::Ptr(ref ty) => {
-                ty.add_monomorphs(library, out);
-            }
-            Type::Ref(ref ty) | Type::MutRef(ref ty) => {
-                ty.add_monomorphs(library, out);
-            }
-            Type::Path(ref generic) => {
-                if generic.generics().is_empty() || out.contains(&generic) {
-                    return;
-                }
-                let path = generic.path();
-                if let Some(items) = library.get_items(path) {
-                    for item in items {
-                        item.deref()
-                            .instantiate_monomorph(generic.generics(), library, out);
-                    }
-                }
-            }
-            Type::Primitive(_) => {}
-            Type::Array(ref ty, _) => {
-                ty.add_monomorphs(library, out);
-            }
-            Type::FuncPtr(ref ret, ref args) => {
-                ret.add_monomorphs(library, out);
-                for (_, ref arg) in args {
-                    arg.add_monomorphs(library, out);
-                }
-            }
-        }
-    }
-
     pub fn rename_for_config(&mut self, config: &Config, generic_params: &GenericParams) {
         match *self {
             Type::ConstPtr(ref mut ty) => {
                 ty.rename_for_config(config, generic_params);
             }
             Type::Ptr(ref mut ty) => {
-                ty.rename_for_config(config, generic_params);
-            }
-            Type::Ref(ref mut ty) | Type::MutRef(ref mut ty) => {
                 ty.rename_for_config(config, generic_params);
             }
             Type::Path(ref mut ty) => {
@@ -605,96 +472,6 @@ impl Type {
             }
         }
     }
-
-    pub fn resolve_declaration_types(&mut self, resolver: &DeclarationTypeResolver) {
-        match *self {
-            Type::ConstPtr(ref mut ty) => {
-                ty.resolve_declaration_types(resolver);
-            }
-            Type::Ptr(ref mut ty) => {
-                ty.resolve_declaration_types(resolver);
-            }
-            Type::Ref(ref mut ty) | Type::MutRef(ref mut ty) => {
-                ty.resolve_declaration_types(resolver);
-            }
-            Type::Path(ref mut generic_path) => {
-                generic_path.resolve_declaration_types(resolver);
-            }
-            Type::Primitive(_) => {}
-            Type::Array(ref mut ty, _) => {
-                ty.resolve_declaration_types(resolver);
-            }
-            Type::FuncPtr(ref mut ret, ref mut args) => {
-                ret.resolve_declaration_types(resolver);
-                for (_, ref mut arg) in args {
-                    arg.resolve_declaration_types(resolver);
-                }
-            }
-        }
-    }
-
-    pub fn mangle_paths(&mut self, monomorphs: &Monomorphs) {
-        match *self {
-            Type::ConstPtr(ref mut ty) => {
-                ty.mangle_paths(monomorphs);
-            }
-            Type::Ptr(ref mut ty) => {
-                ty.mangle_paths(monomorphs);
-            }
-            Type::Ref(ref mut ty) | Type::MutRef(ref mut ty) => {
-                ty.mangle_paths(monomorphs);
-            }
-            Type::Path(ref mut generic_path) => {
-                if generic_path.generics().is_empty() {
-                    return;
-                }
-
-                if let Some(mangled_path) = monomorphs.mangle_path(&generic_path) {
-                    *generic_path = GenericPath::new(mangled_path.clone(), vec![]);
-                } else {
-                    error!(
-                        "Cannot find a mangling for generic path {:?}. This usually means that a \
-                         type referenced by this generic was incompatible or not found.",
-                        generic_path
-                    );
-                }
-            }
-            Type::Primitive(_) => {}
-            Type::Array(ref mut ty, _) => {
-                ty.mangle_paths(monomorphs);
-            }
-            Type::FuncPtr(ref mut ret, ref mut args) => {
-                ret.mangle_paths(monomorphs);
-                for (_, ref mut arg) in args {
-                    arg.mangle_paths(monomorphs);
-                }
-            }
-        }
-    }
-
-    pub fn can_cmp_order(&self) -> bool {
-        match *self {
-            Type::ConstPtr(..) => true,
-            Type::Ptr(..) => true,
-            Type::Ref(..) | Type::MutRef(..) => false,
-            Type::Path(..) => true,
-            Type::Primitive(ref p) => p.can_cmp_order(),
-            Type::Array(..) => false,
-            Type::FuncPtr(..) => false,
-        }
-    }
-
-    pub fn can_cmp_eq(&self) -> bool {
-        match *self {
-            Type::ConstPtr(..) => true,
-            Type::Ptr(..) => true,
-            Type::Ref(..) | Type::MutRef(..) => false,
-            Type::Path(..) => true,
-            Type::Primitive(ref p) => p.can_cmp_eq(),
-            Type::Array(..) => false,
-            Type::FuncPtr(..) => true,
-        }
-    }
 }
 
 impl Source for String {
@@ -705,19 +482,78 @@ impl Source for String {
 
 impl Source for Type {
     fn write<F: Write>(&self, _config: &Config, out: &mut SourceWriter<F>) {
-        cdecl::write_type(out, &self);
+        write_type(out, &self);
     }
 }
 
 impl Source for (String, Type) {
     fn write<F: Write>(&self, _config: &Config, out: &mut SourceWriter<F>) {
-        cdecl::write_field(out, &self.1, &self.0);
+        write_field(out, &self.1, &self.0);
     }
 }
 
 impl Source for (String, Type, Documentation) {
     fn write<F: Write>(&self, config: &Config, out: &mut SourceWriter<F>) {
         self.2.write(config, out);
-        cdecl::write_field(out, &self.1, &self.0);
+        write_field(out, &self.1, &self.0);
+    }
+}
+
+pub fn write_field<F: Write>(out: &mut SourceWriter<F>, t: &Type, ident: &str) {
+    write!(out, "{}: ", ident);
+    write_type(out, t);
+}
+
+pub fn needs_parens(t: &Type) -> bool {
+    match t {
+        Type::ConstPtr(..) | Type::Ptr(..) | Type::FuncPtr(..) => true,
+        _ => false,
+    }
+}
+
+pub fn write_type<F: Write>(out: &mut SourceWriter<F>, t: &Type) {
+    match t {
+        Type::Path(ref generic) => {
+            write!(out, "{}", generic.export_name());
+            if generic.generics().len() > 0 {
+                out.write("[");
+                out.write_horizontal_source_list(&generic.generics(), ListType::Join(", "));
+                out.write("]");
+            }
+        }
+        Type::Primitive(ref p) => {
+            write!(out, "{}", p.to_string());
+        }
+        Type::ConstPtr(ref t) | Type::Ptr(ref t) => {
+            if let Type::Primitive(PrimitiveType::Void) = **t {
+                out.write("pointer");
+            } else {
+                out.write("ptr ");
+                if needs_parens(t) {
+                    out.write("(");
+                    write_type(out, t);
+                    out.write(")");
+                } else {
+                    write_type(out, t);
+                }
+            }
+        }
+        Type::Array(ref t, ref constant) => {
+            write!(out, "array[{}, ", constant.as_str());
+            write_type(out, t);
+            out.write("]");
+        }
+        Type::FuncPtr(ref ret, ref args) => {
+            out.write("proc ");
+
+            let args = args
+                .iter()
+                .map(|(ref name, ref ty)| (name.clone(), ty))
+                .collect();
+
+            function::write_func_args_ret(out, false, args, ret);
+
+            out.write(" {.cdecl.}");
+        }
     }
 }

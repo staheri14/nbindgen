@@ -6,7 +6,7 @@ use std::io::Write;
 
 use syn;
 
-use crate::bindgen::config::{Config, DocumentationStyle, Language};
+use crate::bindgen::config::{Config, DocumentationStyle};
 use crate::bindgen::utilities::SynAttributeHelpers;
 use crate::bindgen::writer::{Source, SourceWriter};
 
@@ -40,8 +40,6 @@ impl Source for Documentation {
         }
 
         let style = match config.documentation_style {
-            DocumentationStyle::Auto if config.language == Language::C => DocumentationStyle::Doxy,
-            DocumentationStyle::Auto if config.language == Language::Cxx => DocumentationStyle::Cxx,
             DocumentationStyle::Auto => DocumentationStyle::C, // Fallback if `Language` gets extended.
             other => other,
         };
@@ -51,13 +49,11 @@ impl Source for Documentation {
         // https://www.cs.cmu.edu/~410/doc/doxygen.html
         match style {
             DocumentationStyle::C => {
-                out.write("/*");
-                out.new_line();
+                out.write("#");
             }
 
             DocumentationStyle::Doxy => {
-                out.write("/**");
-                out.new_line();
+                out.write("##");
             }
 
             _ => (),
@@ -65,10 +61,10 @@ impl Source for Documentation {
 
         for line in &self.doc_comment {
             match style {
-                DocumentationStyle::C => out.write(""),
-                DocumentationStyle::Doxy => out.write(" *"),
-                DocumentationStyle::C99 => out.write("//"),
-                DocumentationStyle::Cxx => out.write("///"),
+                DocumentationStyle::C => out.write("#"),
+                DocumentationStyle::Doxy => out.write("# *"),
+                DocumentationStyle::C99 => out.write("#"),
+                DocumentationStyle::Cxx => out.write("##"),
                 DocumentationStyle::Auto => unreachable!(), // Auto case should always be covered
             }
 
@@ -77,16 +73,6 @@ impl Source for Documentation {
         }
 
         match style {
-            DocumentationStyle::C => {
-                out.write(" */");
-                out.new_line();
-            }
-
-            DocumentationStyle::Doxy => {
-                out.write(" */");
-                out.new_line();
-            }
-
             _ => (),
         }
     }

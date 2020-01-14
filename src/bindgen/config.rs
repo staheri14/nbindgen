@@ -19,58 +19,6 @@ pub use crate::bindgen::rename::RenameRule;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// A language type to generate bindings for.
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum Language {
-    Cxx,
-    C,
-}
-
-impl FromStr for Language {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Language, Self::Err> {
-        match s {
-            "cxx" => Ok(Language::Cxx),
-            "Cxx" => Ok(Language::Cxx),
-            "CXX" => Ok(Language::Cxx),
-            "cpp" => Ok(Language::Cxx),
-            "Cpp" => Ok(Language::Cxx),
-            "CPP" => Ok(Language::Cxx),
-            "c++" => Ok(Language::Cxx),
-            "C++" => Ok(Language::Cxx),
-            "c" => Ok(Language::C),
-            "C" => Ok(Language::C),
-            _ => Err(format!("Unrecognized Language: '{}'.", s)),
-        }
-    }
-}
-
-deserialize_enum_str!(Language);
-
-/// A style of braces to use for generating code.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Braces {
-    SameLine,
-    NextLine,
-}
-
-impl FromStr for Braces {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Braces, Self::Err> {
-        match s {
-            "SameLine" => Ok(Braces::SameLine),
-            "same_line" => Ok(Braces::SameLine),
-            "NextLine" => Ok(Braces::NextLine),
-            "next_line" => Ok(Braces::NextLine),
-            _ => Err(format!("Unrecognized Braces: '{}'.", s)),
-        }
-    }
-}
-
-deserialize_enum_str!(Braces);
-
 /// A type of layout to use when generating long lines of code.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Layout {
@@ -124,48 +72,6 @@ impl FromStr for DocumentationStyle {
 }
 
 deserialize_enum_str!(DocumentationStyle);
-
-/// A style of Style to use when generating structs and enums.
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum Style {
-    Both,
-    Tag,
-    Type,
-}
-
-impl Style {
-    pub fn generate_tag(self) -> bool {
-        match self {
-            Style::Both | Style::Tag => true,
-            Style::Type => false,
-        }
-    }
-
-    pub fn generate_typedef(self) -> bool {
-        match self {
-            Style::Both | Style::Type => true,
-            Style::Tag => false,
-        }
-    }
-}
-
-impl FromStr for Style {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Style, Self::Err> {
-        match s {
-            "Both" => Ok(Style::Both),
-            "both" => Ok(Style::Both),
-            "Tag" => Ok(Style::Tag),
-            "tag" => Ok(Style::Tag),
-            "Type" => Ok(Style::Type),
-            "type" => Ok(Style::Type),
-            _ => Err(format!("Unrecognized Style: '{}'.", s)),
-        }
-    }
-}
-
-deserialize_enum_str!(Style);
 
 /// Different item types that we can generate and filter.
 #[derive(Debug, Clone, PartialEq)]
@@ -345,51 +251,6 @@ pub struct StructConfig {
     pub must_use: Option<String>,
 }
 
-impl StructConfig {
-    pub(crate) fn derive_constructor(&self, annotations: &AnnotationSet) -> bool {
-        if let Some(x) = annotations.bool("derive-constructor") {
-            return x;
-        }
-        self.derive_constructor
-    }
-    pub(crate) fn derive_eq(&self, annotations: &AnnotationSet) -> bool {
-        if let Some(x) = annotations.bool("derive-eq") {
-            return x;
-        }
-        self.derive_eq
-    }
-    pub(crate) fn derive_neq(&self, annotations: &AnnotationSet) -> bool {
-        if let Some(x) = annotations.bool("derive-neq") {
-            return x;
-        }
-        self.derive_neq
-    }
-    pub(crate) fn derive_lt(&self, annotations: &AnnotationSet) -> bool {
-        if let Some(x) = annotations.bool("derive-lt") {
-            return x;
-        }
-        self.derive_lt
-    }
-    pub(crate) fn derive_lte(&self, annotations: &AnnotationSet) -> bool {
-        if let Some(x) = annotations.bool("derive-lte") {
-            return x;
-        }
-        self.derive_lte
-    }
-    pub(crate) fn derive_gt(&self, annotations: &AnnotationSet) -> bool {
-        if let Some(x) = annotations.bool("derive-gt") {
-            return x;
-        }
-        self.derive_gt
-    }
-    pub(crate) fn derive_gte(&self, annotations: &AnnotationSet) -> bool {
-        if let Some(x) = annotations.bool("derive-gte") {
-            return x;
-        }
-        self.derive_gte
-    }
-}
-
 /// Settings to apply to generated enums.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -450,66 +311,6 @@ impl Default for EnumConfig {
             enum_class: true,
             private_default_tagged_enum_constructor: false,
         }
-    }
-}
-
-impl EnumConfig {
-    pub(crate) fn add_sentinel(&self, annotations: &AnnotationSet) -> bool {
-        if let Some(x) = annotations.bool("add-sentinel") {
-            return x;
-        }
-        self.add_sentinel
-    }
-    pub(crate) fn derive_helper_methods(&self, annotations: &AnnotationSet) -> bool {
-        if let Some(x) = annotations.bool("derive-helper-methods") {
-            return x;
-        }
-        self.derive_helper_methods
-    }
-    pub(crate) fn derive_const_casts(&self, annotations: &AnnotationSet) -> bool {
-        if let Some(x) = annotations.bool("derive-const-casts") {
-            return x;
-        }
-        self.derive_const_casts
-    }
-    pub(crate) fn derive_mut_casts(&self, annotations: &AnnotationSet) -> bool {
-        if let Some(x) = annotations.bool("derive-mut-casts") {
-            return x;
-        }
-        self.derive_mut_casts
-    }
-    pub(crate) fn derive_tagged_enum_destructor(&self, annotations: &AnnotationSet) -> bool {
-        if let Some(x) = annotations.bool("derive-tagged-enum-destructor") {
-            return x;
-        }
-        self.derive_tagged_enum_destructor
-    }
-    pub(crate) fn derive_tagged_enum_copy_constructor(&self, annotations: &AnnotationSet) -> bool {
-        if let Some(x) = annotations.bool("derive-tagged-enum-copy-constructor") {
-            return x;
-        }
-        self.derive_tagged_enum_copy_constructor
-    }
-    pub(crate) fn derive_tagged_enum_copy_assignment(&self, annotations: &AnnotationSet) -> bool {
-        if let Some(x) = annotations.bool("derive-tagged-enum-copy-assignment") {
-            return x;
-        }
-        self.derive_tagged_enum_copy_assignment
-    }
-    pub(crate) fn enum_class(&self, annotations: &AnnotationSet) -> bool {
-        if let Some(x) = annotations.bool("enum-class") {
-            return x;
-        }
-        self.enum_class
-    }
-    pub(crate) fn private_default_tagged_enum_constructor(
-        &self,
-        annotations: &AnnotationSet,
-    ) -> bool {
-        if let Some(x) = annotations.bool("private-default-tagged-enum-constructor") {
-            return x;
-        }
-        self.private_default_tagged_enum_constructor
     }
 }
 
@@ -660,14 +461,12 @@ impl ParseConfig {
 pub struct Config {
     /// Optional text to output at the beginning of the file
     pub header: Option<String>,
-    /// A list of additional includes to put at the beginning of the generated header
+    /// A list of includes to put at the beginning of the generated header (avoid)
     pub includes: Vec<String>,
-    /// A list of additional system includes to put at the beginning of the generated header
-    pub sys_includes: Vec<String>,
+    /// A list of import to put at the beginning of the generated header
+    pub imports: Vec<String>,
     /// Optional text to output at the end of the file
     pub trailer: Option<String>,
-    /// Optional name to use for an include guard
-    pub include_guard: Option<String>,
     /// Generates no includes at all. Overrides all other include options
     ///
     /// This option is useful when using cbindgen with tools such as python's cffi which
@@ -677,24 +476,10 @@ pub struct Config {
     pub autogen_warning: Option<String>,
     /// Include a comment with the version of cbindgen used to generate the file
     pub include_version: bool,
-    /// An optional name for the root namespace. Only applicable when language="C++"
-    pub namespace: Option<String>,
-    /// An optional list of namespaces. Only applicable when language="C++"
-    pub namespaces: Option<Vec<String>>,
-    /// An optional list of namespaces to declare as using. Only applicable when language="C++"
-    pub using_namespaces: Option<Vec<String>>,
-    /// The style to use for braces
-    pub braces: Braces,
     /// The preferred length of a line, used for auto breaking function arguments
     pub line_length: usize,
     /// The amount of spaces in a tab
     pub tab_width: usize,
-    /// The language to output bindings for
-    pub language: Language,
-    /// Include preprocessor defines in C bindings to ensure C++ compatibility
-    pub cpp_compat: bool,
-    /// The style to declare structs, enums and unions in for C
-    pub style: Style,
     /// The configuration options for parsing
     pub parse: ParseConfig,
     /// The configuration options for exporting
@@ -728,21 +513,13 @@ impl Default for Config {
         Config {
             header: None,
             includes: Vec::new(),
-            sys_includes: Vec::new(),
+            imports: Vec::new(),
             trailer: None,
-            include_guard: None,
             autogen_warning: None,
             include_version: false,
             no_includes: false,
-            namespace: None,
-            namespaces: None,
-            using_namespaces: None,
-            braces: Braces::SameLine,
             line_length: 100,
             tab_width: 2,
-            language: Language::Cxx,
-            cpp_compat: false,
-            style: Style::Type,
             macro_expansion: Default::default(),
             parse: ParseConfig::default(),
             export: ExportConfig::default(),

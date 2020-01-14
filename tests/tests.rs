@@ -1,43 +1,16 @@
-extern crate cbindgen;
+extern crate nbindgen;
 
-use cbindgen::*;
 use std::path::Path;
 use std::process::Command;
 use std::{env, fs, str};
 
-fn run_cbindgen(
-    cbindgen_path: &'static str,
-    path: &Path,
-    output: &Path,
-    language: Language,
-    cpp_compat: bool,
-    style: Option<Style>,
-) {
+fn run_cbindgen(cbindgen_path: &'static str, path: &Path, output: &Path) {
     let program = Path::new(cbindgen_path);
     let mut command = Command::new(&program);
-    match language {
-        Language::Cxx => {}
-        Language::C => {
-            command.arg("--lang").arg("c");
-
-            if cpp_compat {
-                command.arg("--cpp-compat");
-            }
-        }
-    }
-
-    if let Some(style) = style {
-        command.arg("--style");
-        command.arg(match style {
-            Style::Both => "both",
-            Style::Tag => "tag",
-            Style::Type => "type",
-        });
-    }
 
     command.arg("-o").arg(output);
 
-    if env::var("CBINDGEN_TEST_VERIFY").is_ok() {
+    if env::var("NBINDGEN_TEST_VERIFY").is_ok() {
         command.arg("--verify");
     }
 
@@ -59,23 +32,14 @@ fn run_cbindgen(
     );
 }
 
-fn compile(cbindgen_output: &Path, language: Language) {
-    let cc = match language {
-        Language::Cxx => env::var("CXX").unwrap_or_else(|_| "g++".to_owned()),
-        Language::C => env::var("CC").unwrap_or_else(|_| "gcc".to_owned()),
-    };
+fn compile(cbindgen_output: &Path) {
+    let cc = "nim";
 
     let mut object = cbindgen_output.to_path_buf();
     object.set_extension("o");
 
     let mut command = Command::new(cc);
-    command.arg("-D").arg("DEFINED");
-    command.arg("-c").arg(cbindgen_output);
-    command.arg("-o").arg(&object);
-    if let Language::Cxx = language {
-        // enum class is a c++11 extension which makes g++ on macos 10.14 error out
-        command.arg("-std=c++11");
-    }
+    command.arg("check").arg(cbindgen_output);
 
     println!("Running: {:?}", command);
     let out = command.output().expect("failed to compile");
@@ -86,71 +50,18 @@ fn compile(cbindgen_output: &Path, language: Language) {
     }
 }
 
-fn run_compile_test(
-    cbindgen_path: &'static str,
-    name: &'static str,
-    path: &Path,
-    language: Language,
-    cpp_compat: bool,
-    style: Option<Style>,
-) {
+fn run_compile_test(cbindgen_path: &'static str, name: &'static str, path: &Path) {
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let mut output = Path::new(&crate_dir).join("tests").join("expectations");
-    if let Some(style) = style {
-        match style {
-            Style::Both => {
-                output.push("both");
-            }
-            Style::Tag => {
-                output.push("tag");
-            }
-            Style::Type => {}
-        }
-    }
+    output.push(format!("{}.nim", name.replace("-", "_")));
 
-    let ext = match language {
-        Language::Cxx => "cpp",
-        Language::C => {
-            if cpp_compat {
-                "compat.c"
-            } else {
-                "c"
-            }
-        }
-    };
-
-    output.push(format!("{}.{}", name, ext));
-
-    run_cbindgen(cbindgen_path, path, &output, language, cpp_compat, style);
-    compile(&output, language);
-
-    if language == Language::C && cpp_compat {
-        compile(&output, Language::Cxx)
-    }
+    run_cbindgen(cbindgen_path, path, &output);
+    compile(&output);
 }
 
 fn test_file(cbindgen_path: &'static str, name: &'static str, filename: &'static str) {
     let test = Path::new(filename);
-    for style in &[Style::Type, Style::Tag, Style::Both] {
-        for cpp_compat in &[true, false] {
-            run_compile_test(
-                cbindgen_path,
-                name,
-                &test,
-                Language::C,
-                *cpp_compat,
-                Some(*style),
-            );
-        }
-    }
-    run_compile_test(
-        cbindgen_path,
-        name,
-        &test,
-        Language::Cxx,
-        /* cpp_compat = */ false,
-        None,
-    );
+    run_compile_test(cbindgen_path, name, &test);
 }
 
 macro_rules! test_file {

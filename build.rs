@@ -19,15 +19,15 @@ fn generate_tests() {
     // Try to make a decent guess at where our binary will end up in.
     //
     // TODO(emilio): Ideally running tests will just use the library-version of
-    // cbindgen instead of the built binary.
-    let cbindgen_path = out_dir
+    // nbindgen instead of the built binary.
+    let nbindgen_path = out_dir
         .parent()
         .unwrap()
         .parent()
         .unwrap()
         .parent()
         .unwrap()
-        .join("cbindgen");
+        .join("nbindgen");
 
     for entry in entries {
         let path_segment = if entry.file_type().unwrap().is_file() {
@@ -54,7 +54,7 @@ fn generate_tests() {
         writeln!(
             dst,
             "test_file!({:?}, test_{}, {:?}, {:?});",
-            cbindgen_path,
+            nbindgen_path,
             identifier,
             path_segment,
             entry.path(),

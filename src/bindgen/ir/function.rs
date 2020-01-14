@@ -6,15 +6,13 @@ use std::io::Write;
 
 use syn;
 
-use crate::bindgen::cdecl;
-use crate::bindgen::config::{Config, Language, Layout};
-use crate::bindgen::declarationtyperesolver::DeclarationTypeResolver;
+use crate::bindgen::config::{Config, Layout};
 use crate::bindgen::dependencies::Dependencies;
+use crate::bindgen::ir::ty;
 use crate::bindgen::ir::{
     AnnotationSet, Cfg, ConditionWrite, Documentation, Path, PrimitiveType, ToCondition, Type,
 };
 use crate::bindgen::library::Library;
-use crate::bindgen::monomorph::Monomorphs;
 use crate::bindgen::rename::{IdentifierType, RenameRule};
 use crate::bindgen::reserved;
 use crate::bindgen::utilities::{find_first_some, IterHelpers};
@@ -80,27 +78,6 @@ impl Function {
         }
     }
 
-    pub fn add_monomorphs(&self, library: &Library, out: &mut Monomorphs) {
-        self.ret.add_monomorphs(library, out);
-        for &(_, ref ty) in &self.args {
-            ty.add_monomorphs(library, out);
-        }
-    }
-
-    pub fn mangle_paths(&mut self, monomorphs: &Monomorphs) {
-        self.ret.mangle_paths(monomorphs);
-        for &mut (_, ref mut ty) in &mut self.args {
-            ty.mangle_paths(monomorphs);
-        }
-    }
-
-    pub fn resolve_declaration_types(&mut self, resolver: &DeclarationTypeResolver) {
-        self.ret.resolve_declaration_types(resolver);
-        for &mut (_, ref mut ty) in &mut self.args {
-            ty.resolve_declaration_types(resolver);
-        }
-    }
-
     pub fn rename_for_config(&mut self, config: &Config) {
         // Rename the types used in arguments
         let generic_params = Default::default();
@@ -138,7 +115,6 @@ impl Function {
 impl Source for Function {
     fn write<F: Write>(&self, config: &Config, out: &mut SourceWriter<F>) {
         fn write_1<W: Write>(func: &Function, config: &Config, out: &mut SourceWriter<W>) {
-            let void_prototype = config.language == Language::C;
             let prefix = config.function.prefix(&func.annotations);
             let postfix = config.function.postfix(&func.annotations);
 
@@ -147,32 +123,30 @@ impl Source for Function {
 
             func.documentation.write(config, out);
 
-            if func.extern_decl {
-                out.write("extern ");
-            } else {
-                if let Some(ref prefix) = prefix {
-                    write!(out, "{} ", prefix);
-                }
-                if func.annotations.must_use {
-                    if let Some(ref anno) = config.function.must_use {
-                        write!(out, "{} ", anno);
-                    }
+            if let Some(ref prefix) = prefix {
+                write!(out, "{} ", prefix);
+            }
+            if func.annotations.must_use {
+                if let Some(ref anno) = config.function.must_use {
+                    write!(out, "{} ", anno);
                 }
             }
-            cdecl::write_func(out, &func, false, void_prototype);
+            out.write("proc ");
+
+            write_func(out, &func, false);
+            write!(out, " {{.importc: \"{}\".}}", func.path().name());
+
             if !func.extern_decl {
                 if let Some(ref postfix) = postfix {
                     out.write(" ");
                     write!(out, "{}", postfix);
                 }
             }
-            out.write(";");
 
             condition.write_after(config, out);
         }
 
         fn write_2<W: Write>(func: &Function, config: &Config, out: &mut SourceWriter<W>) {
-            let void_prototype = config.language == Language::C;
             let prefix = config.function.prefix(&func.annotations);
             let postfix = config.function.postfix(&func.annotations);
 
@@ -182,28 +156,28 @@ impl Source for Function {
 
             func.documentation.write(config, out);
 
-            if func.extern_decl {
-                out.write("extern ");
-            } else {
-                if let Some(ref prefix) = prefix {
-                    write!(out, "{}", prefix);
+            if let Some(ref prefix) = prefix {
+                write!(out, "{}", prefix);
+                out.new_line();
+            }
+            if func.annotations.must_use {
+                if let Some(ref anno) = config.function.must_use {
+                    write!(out, "{}", anno);
                     out.new_line();
                 }
-                if func.annotations.must_use {
-                    if let Some(ref anno) = config.function.must_use {
-                        write!(out, "{}", anno);
-                        out.new_line();
-                    }
-                }
             }
-            cdecl::write_func(out, &func, true, void_prototype);
+            out.write("proc ");
+
+            write_func(out, &func, true);
+
             if !func.extern_decl {
                 if let Some(ref postfix) = postfix {
                     out.new_line();
                     write!(out, "{}", postfix);
                 }
             }
-            out.write(";");
+
+            write!(out, " {{.importc: \"{}\".}}", func.path().name());
 
             condition.write_after(config, out);
         };
@@ -242,4 +216,75 @@ impl SynFnArgHelpers for syn::FnArg {
             _ => Err("Parameter has an unsupported type.".to_owned()),
         }
     }
+}
+
+pub fn write_func_args_ret<F: Write>(
+    out: &mut SourceWriter<F>,
+    layout_vertical: bool,
+    args: Vec<(Option<String>, &Type)>,
+    ret: &Type,
+) {
+    out.write("(");
+
+    if layout_vertical {
+        let align_length = out.line_length_for_align();
+        out.push_set_spaces(align_length);
+        for (i, &(ref arg_ident, ref arg_ty)) in args.iter().enumerate() {
+            if i != 0 {
+                out.write(",");
+                out.new_line();
+            }
+
+            // Convert &Option<String> to Option<&str>
+            let istr = Some(format!("a{}", i));
+            let arg_ident = arg_ident.as_ref().map(|x| x.as_ref());
+            ty::write_field(
+                out,
+                arg_ty,
+                arg_ident.or(istr.as_ref().map(|x| x.as_ref())).unwrap(),
+            );
+        }
+        out.pop_tab();
+    } else {
+        for (i, &(ref arg_ident, ref arg_ty)) in args.iter().enumerate() {
+            if i != 0 {
+                out.write(", ");
+            }
+
+            // Convert &Option<String> to Option<&str>
+            let istr = Some(format!("a{}", i));
+            let arg_ident = arg_ident.as_ref().map(|x| x.as_ref());
+            ty::write_field(
+                out,
+                arg_ty,
+                arg_ident.or(istr.as_ref().map(|x| x.as_ref())).unwrap(),
+            );
+        }
+    }
+    out.write(")");
+
+    if let Type::Primitive(PrimitiveType::Void) = ret {
+        // no need to write return type..
+    } else {
+        out.write(": ");
+        if ty::needs_parens(ret) {
+            out.write("(");
+            ty::write_type(out, ret);
+            out.write(")");
+        } else {
+            ty::write_type(out, ret);
+        }
+    }
+}
+
+pub fn write_func<F: Write>(out: &mut SourceWriter<F>, f: &Function, layout_vertical: bool) {
+    write!(out, "{}*", reserved::escaped(f.path().name()));
+
+    let args = f
+        .args
+        .iter()
+        .map(|&(ref arg_name, ref arg_ty)| (Some(arg_name.clone()), arg_ty))
+        .collect();
+
+    write_func_args_ret(out, layout_vertical, args, &f.ret);
 }

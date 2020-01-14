@@ -6,16 +6,13 @@ use std::io::Write;
 
 use syn;
 
-use crate::bindgen::config::{Config, Language, LayoutConfig};
-use crate::bindgen::declarationtyperesolver::DeclarationTypeResolver;
+use crate::bindgen::config::{Config, LayoutConfig};
 use crate::bindgen::dependencies::Dependencies;
 use crate::bindgen::ir::{
     AnnotationSet, Cfg, ConditionWrite, Constant, Documentation, GenericParams, Item,
     ItemContainer, Path, Repr, ReprAlign, ReprStyle, ToCondition, Type, Typedef,
 };
 use crate::bindgen::library::Library;
-use crate::bindgen::mangle;
-use crate::bindgen::monomorph::Monomorphs;
 use crate::bindgen::rename::{IdentifierType, RenameRule};
 use crate::bindgen::reserved;
 use crate::bindgen::utilities::{find_first_some, IterHelpers};
@@ -42,11 +39,6 @@ pub struct Struct {
 }
 
 impl Struct {
-    /// Whether this struct can derive operator== / operator!=.
-    pub fn can_derive_eq(&self) -> bool {
-        !self.fields.is_empty() && self.fields.iter().all(|x| x.1.can_cmp_eq())
-    }
-
     pub fn add_associated_constant(&mut self, c: Constant) {
         self.associated_constants.push(c);
     }
@@ -150,83 +142,6 @@ impl Struct {
     pub fn is_generic(&self) -> bool {
         self.generic_params.len() > 0
     }
-
-    pub fn add_monomorphs(&self, library: &Library, out: &mut Monomorphs) {
-        // Generic structs can instantiate monomorphs only once they've been
-        // instantiated. See `instantiate_monomorph` for more details.
-        if self.is_generic() {
-            return;
-        }
-
-        for &(_, ref ty, _) in &self.fields {
-            ty.add_monomorphs(library, out);
-        }
-    }
-
-    pub fn mangle_paths(&mut self, monomorphs: &Monomorphs) {
-        for &mut (_, ref mut ty, _) in &mut self.fields {
-            ty.mangle_paths(monomorphs);
-        }
-    }
-
-    pub fn specialize(&self, generic_values: &[Type], mappings: &[(&Path, &Type)]) -> Self {
-        let mangled_path = mangle::mangle_path(&self.path, generic_values);
-        Struct::new(
-            mangled_path,
-            GenericParams::default(),
-            self.fields
-                .iter()
-                .map(|x| (x.0.clone(), x.1.specialize(mappings), x.2.clone()))
-                .collect(),
-            self.is_tagged,
-            self.is_enum_variant_body,
-            self.alignment,
-            self.is_transparent,
-            self.tuple_struct,
-            self.cfg.clone(),
-            self.annotations.clone(),
-            self.documentation.clone(),
-        )
-    }
-
-    fn emit_bitflags_binop<F: Write>(
-        &self,
-        operator: char,
-        other: &str,
-        out: &mut SourceWriter<F>,
-    ) {
-        out.new_line();
-        write!(
-            out,
-            "{} operator{}(const {}& {}) const",
-            self.export_name(),
-            operator,
-            self.export_name(),
-            other
-        );
-        out.open_brace();
-        write!(
-            out,
-            "return {{static_cast<decltype(bits)>(this->bits {} {}.bits)}};",
-            operator, other
-        );
-        out.close_brace(false);
-
-        out.new_line();
-        write!(
-            out,
-            "{}& operator{}=(const {}& {})",
-            self.export_name(),
-            operator,
-            self.export_name(),
-            other
-        );
-        out.open_brace();
-        write!(out, "*this = (*this {} {});", operator, other);
-        out.new_line();
-        write!(out, "return *this;");
-        out.close_brace(false);
-    }
 }
 
 impl Item for Struct {
@@ -254,21 +169,9 @@ impl Item for Struct {
         ItemContainer::Struct(self.clone())
     }
 
-    fn collect_declaration_types(&self, resolver: &mut DeclarationTypeResolver) {
-        if !self.is_transparent {
-            resolver.add_struct(&self.path);
-        }
-    }
-
-    fn resolve_declaration_types(&mut self, resolver: &DeclarationTypeResolver) {
-        for &mut (_, ref mut ty, _) in &mut self.fields {
-            ty.resolve_declaration_types(resolver);
-        }
-    }
-
     fn rename_for_config(&mut self, config: &Config) {
         // Rename the name of the struct
-        if !self.is_tagged || config.language == Language::C {
+        if !self.is_tagged {
             config.export.rename(&mut self.export_name);
         }
 
@@ -318,7 +221,7 @@ impl Item for Struct {
                 // If we don't have any rules for a tuple struct, prefix them with
                 // an underscore so it still compiles
                 for name in names {
-                    name.insert(0, '_');
+                    name.insert(0, 'x');
                 }
             }
         }
@@ -348,39 +251,6 @@ impl Item for Struct {
             c.add_dependencies(library, out);
         }
     }
-
-    fn instantiate_monomorph(
-        &self,
-        generic_values: &[Type],
-        library: &Library,
-        out: &mut Monomorphs,
-    ) {
-        assert!(
-            self.generic_params.len() > 0,
-            "{} is not generic",
-            self.path
-        );
-        assert!(
-            self.generic_params.len() == generic_values.len(),
-            "{} has {} params but is being instantiated with {} values",
-            self.path,
-            self.generic_params.len(),
-            generic_values.len(),
-        );
-
-        let mappings = self
-            .generic_params
-            .iter()
-            .zip(generic_values.iter())
-            .collect::<Vec<_>>();
-
-        let monomorph = self.specialize(generic_values, &mappings);
-
-        // Instantiate any monomorphs for any generic paths we may have just created.
-        monomorph.add_monomorphs(library, out);
-
-        out.insert_struct(self, monomorph, generic_values.to_owned());
-    }
 }
 
 impl Source for Struct {
@@ -408,218 +278,53 @@ impl Source for Struct {
 
         self.documentation.write(config, out);
 
-        if !self.is_enum_variant_body {
-            self.generic_params.write(config, out);
-        }
-
-        // The following results in
-        // C++ or C with Tag as style:
-        //   struct Name {
-        // C with Type only style:
-        //   typedef struct {
-        // C with Both as style:
-        //   typedef struct Name {
-        if config.language == Language::C && config.style.generate_typedef() {
-            out.write("typedef ");
-        }
-
-        out.write("struct");
-
+        /*
         if let Some(align) = self.alignment {
             match align {
                 ReprAlign::Packed => {
                     if let Some(ref anno) = config.layout.packed {
-                        write!(out, " {}", anno);
+                        write!(out, "{}", anno);
                     }
                 }
                 ReprAlign::Align(n) => {
                     if let Some(ref anno) = config.layout.aligned_n {
-                        write!(out, " {}({})", anno, n);
+                        write!(out, "{}({})", anno, n);
                     }
                 }
             }
         }
-
+        */
         if self.annotations.must_use {
             if let Some(ref anno) = config.structure.must_use {
                 write!(out, " {}", anno);
             }
         }
 
-        if config.language == Language::Cxx || config.style.generate_tag() {
-            write!(out, " {}", self.export_name());
+        write!(out, "type {}*", self.export_name());
+        if !self.is_enum_variant_body {
+            self.generic_params.write(config, out);
         }
 
-        out.open_brace();
+        out.write(" = object");
+        out.new_line();
+        out.indent();
 
         if config.documentation {
-            out.write_vertical_source_list(&self.fields, ListType::Cap(";"));
+            out.write_vertical_source_list(&self.fields, ListType::Cap(""));
         } else {
             let vec: Vec<_> = self
                 .fields
                 .iter()
                 .map(|&(ref name, ref ty, _)| (name.clone(), ty.clone()))
                 .collect();
-            out.write_vertical_source_list(&vec[..], ListType::Cap(";"));
-        }
-
-        if config.language == Language::Cxx {
-            let mut wrote_start_newline = false;
-
-            if config.structure.derive_constructor(&self.annotations) && !self.fields.is_empty() {
-                if !wrote_start_newline {
-                    wrote_start_newline = true;
-                    out.new_line();
-                }
-
-                out.new_line();
-
-                let arg_renamer = |name: &str| {
-                    config
-                        .function
-                        .rename_args
-                        .as_ref()
-                        .unwrap_or(&RenameRule::GeckoCase)
-                        .apply_to_snake_case(name, IdentifierType::FunctionArg)
-                };
-                write!(out, "{}(", self.export_name());
-                let vec: Vec<_> = self
-                    .fields
-                    .iter()
-                    .map(|&(ref name, ref ty, _)| {
-                        // const-ref args to constructor
-                        (format!("const& {}", arg_renamer(name)), ty.clone())
-                    })
-                    .collect();
-                out.write_vertical_source_list(&vec[..], ListType::Join(","));
-                write!(out, ")");
-                out.new_line();
-                write!(out, "  : ");
-                let vec: Vec<_> = self
-                    .fields
-                    .iter()
-                    .map(|x| format!("{}({})", x.0, arg_renamer(&x.0)))
-                    .collect();
-                out.write_vertical_source_list(&vec[..], ListType::Join(","));
-                out.new_line();
-                write!(out, "{{}}");
-                out.new_line();
-            }
-
-            let other = if let Some(r) = config.function.rename_args {
-                r.apply_to_snake_case("other", IdentifierType::FunctionArg)
-            } else {
-                String::from("other")
-            };
-
-            if self
-                .annotations
-                .bool("internal-derive-bitflags")
-                .unwrap_or(false)
-            {
-                if !wrote_start_newline {
-                    wrote_start_newline = true;
-                    out.new_line();
-                }
-                out.new_line();
-                write!(out, "explicit operator bool() const");
-                out.open_brace();
-                write!(out, "return !!bits;");
-                out.close_brace(false);
-
-                out.new_line();
-                write!(out, "{} operator~() const", self.export_name());
-                out.open_brace();
-                write!(out, "return {{static_cast<decltype(bits)>(~bits)}};");
-                out.close_brace(false);
-
-                self.emit_bitflags_binop('|', &other, out);
-                self.emit_bitflags_binop('&', &other, out);
-                self.emit_bitflags_binop('^', &other, out);
-            }
-
-            let skip_fields = if self.is_tagged { 1 } else { 0 };
-
-            let mut emit_op = |op, conjuc| {
-                if !wrote_start_newline {
-                    wrote_start_newline = true;
-                    out.new_line();
-                }
-
-                out.new_line();
-
-                write!(
-                    out,
-                    "bool operator{}(const {}& {}) const",
-                    op,
-                    self.export_name(),
-                    other
-                );
-                out.open_brace();
-                out.write("return ");
-                let vec: Vec<_> = self
-                    .fields
-                    .iter()
-                    .skip(skip_fields)
-                    .map(|x| format!("{} {} {}.{}", x.0, op, other, x.0))
-                    .collect();
-                out.write_vertical_source_list(&vec[..], ListType::Join(&format!(" {}", conjuc)));
-                out.write(";");
-                out.close_brace(false);
-            };
-
-            if config.structure.derive_eq(&self.annotations) && self.can_derive_eq() {
-                emit_op("==", "&&");
-            }
-            if config.structure.derive_neq(&self.annotations) && self.can_derive_eq() {
-                emit_op("!=", "||");
-            }
-            if config.structure.derive_lt(&self.annotations)
-                && self.fields.len() == 1
-                && self.fields[0].1.can_cmp_order()
-            {
-                emit_op("<", "&&");
-            }
-            if config.structure.derive_lte(&self.annotations)
-                && self.fields.len() == 1
-                && self.fields[0].1.can_cmp_order()
-            {
-                emit_op("<=", "&&");
-            }
-            if config.structure.derive_gt(&self.annotations)
-                && self.fields.len() == 1
-                && self.fields[0].1.can_cmp_order()
-            {
-                emit_op(">", "&&");
-            }
-            if config.structure.derive_gte(&self.annotations)
-                && self.fields.len() == 1
-                && self.fields[0].1.can_cmp_order()
-            {
-                emit_op(">=", "&&");
-            }
+            out.write_vertical_source_list(&vec[..], ListType::Cap(""));
         }
 
         if let Some(body) = config.export.extra_body(&self.path) {
             out.write_raw_block(body);
         }
 
-        if config.language == Language::Cxx
-            && config.structure.associated_constants_in_body
-            && config.constant.allow_static_const
-        {
-            for constant in &self.associated_constants {
-                out.new_line();
-                constant.write_declaration(config, out, self);
-            }
-        }
-
-        if config.language == Language::C && config.style.generate_typedef() {
-            out.close_brace(false);
-            write!(out, " {};", self.export_name());
-        } else {
-            out.close_brace(true);
-        }
+        out.dedent();
 
         for constant in &self.associated_constants {
             out.new_line();

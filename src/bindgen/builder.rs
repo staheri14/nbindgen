@@ -6,7 +6,7 @@ use std::path;
 
 use crate::bindgen::bindings::Bindings;
 use crate::bindgen::cargo::Cargo;
-use crate::bindgen::config::{Braces, Config, Language};
+use crate::bindgen::config::Config;
 use crate::bindgen::error::Error;
 use crate::bindgen::library::Library;
 use crate::bindgen::parser::{self, Parse};
@@ -53,22 +53,14 @@ impl Builder {
     }
 
     #[allow(unused)]
-    pub fn with_sys_include<S: AsRef<str>>(mut self, include: S) -> Builder {
-        self.config
-            .sys_includes
-            .push(String::from(include.as_ref()));
+    pub fn with_import<S: AsRef<str>>(mut self, include: S) -> Builder {
+        self.config.imports.push(String::from(include.as_ref()));
         self
     }
 
     #[allow(unused)]
     pub fn with_trailer<S: AsRef<str>>(mut self, trailer: S) -> Builder {
         self.config.trailer = Some(String::from(trailer.as_ref()));
-        self
-    }
-
-    #[allow(unused)]
-    pub fn with_include_guard<S: AsRef<str>>(mut self, include_guard: S) -> Builder {
-        self.config.include_guard = Some(String::from(include_guard.as_ref()));
         self
     }
 
@@ -85,29 +77,6 @@ impl Builder {
     }
 
     #[allow(unused)]
-    pub fn with_namespace<S: AsRef<str>>(mut self, namespace: S) -> Builder {
-        self.config.namespace = Some(String::from(namespace.as_ref()));
-        self
-    }
-
-    #[allow(unused)]
-    pub fn with_namespaces<S: AsRef<str>>(mut self, namespaces: &[S]) -> Builder {
-        self.config.namespaces = Some(
-            namespaces
-                .iter()
-                .map(|x| String::from(x.as_ref()))
-                .collect(),
-        );
-        self
-    }
-
-    #[allow(unused)]
-    pub fn with_braces(mut self, braces: Braces) -> Builder {
-        self.config.braces = braces;
-        self
-    }
-
-    #[allow(unused)]
     pub fn with_line_length(mut self, line_length: usize) -> Builder {
         self.config.line_length = line_length;
         self
@@ -116,12 +85,6 @@ impl Builder {
     #[allow(unused)]
     pub fn with_tab_width(mut self, tab_width: usize) -> Builder {
         self.config.tab_width = tab_width;
-        self
-    }
-
-    #[allow(unused)]
-    pub fn with_language(mut self, language: Language) -> Builder {
-        self.config.language = language;
         self
     }
 

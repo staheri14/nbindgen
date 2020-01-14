@@ -7,16 +7,13 @@ use std::io::Write;
 
 use syn;
 
-use crate::bindgen::config::{Config, Language};
-use crate::bindgen::declarationtyperesolver::DeclarationTypeResolver;
+use crate::bindgen::config::Config;
 use crate::bindgen::dependencies::Dependencies;
 use crate::bindgen::ir::{
     AnnotationSet, Cfg, ConditionWrite, Documentation, GenericParams, Item, ItemContainer, Path,
     ToCondition, Type,
 };
 use crate::bindgen::library::Library;
-use crate::bindgen::mangle;
-use crate::bindgen::monomorph::Monomorphs;
 use crate::bindgen::writer::{Source, SourceWriter};
 
 /// A type alias that is represented as a C typedef
@@ -90,24 +87,6 @@ impl Typedef {
             self.annotations = AnnotationSet::new();
         }
     }
-
-    pub fn is_generic(&self) -> bool {
-        self.generic_params.len() > 0
-    }
-
-    pub fn add_monomorphs(&self, library: &Library, out: &mut Monomorphs) {
-        // Generic structs can instantiate monomorphs only once they've been
-        // instantiated. See `instantiate_monomorph` for more details.
-        if self.is_generic() {
-            return;
-        }
-
-        self.aliased.add_monomorphs(library, out);
-    }
-
-    pub fn mangle_paths(&mut self, monomorphs: &Monomorphs) {
-        self.aliased.mangle_paths(monomorphs);
-    }
 }
 
 impl Item for Typedef {
@@ -140,54 +119,9 @@ impl Item for Typedef {
         self.aliased.rename_for_config(config, &self.generic_params);
     }
 
-    fn resolve_declaration_types(&mut self, resolver: &DeclarationTypeResolver) {
-        self.aliased.resolve_declaration_types(resolver);
-    }
-
     fn add_dependencies(&self, library: &Library, out: &mut Dependencies) {
         self.aliased
             .add_dependencies_ignoring_generics(&self.generic_params, library, out);
-    }
-
-    fn instantiate_monomorph(
-        &self,
-        generic_values: &[Type],
-        library: &Library,
-        out: &mut Monomorphs,
-    ) {
-        assert!(
-            self.generic_params.len() > 0,
-            "{} is not generic",
-            self.path
-        );
-        assert!(
-            self.generic_params.len() == generic_values.len(),
-            "{} has {} params but is being instantiated with {} values",
-            self.path,
-            self.generic_params.len(),
-            generic_values.len(),
-        );
-
-        let mappings = self
-            .generic_params
-            .iter()
-            .zip(generic_values.iter())
-            .collect::<Vec<_>>();
-
-        let mangled_path = mangle::mangle_path(&self.path, generic_values);
-        let monomorph = Typedef::new(
-            mangled_path,
-            GenericParams::default(),
-            self.aliased.specialize(&mappings),
-            self.cfg.clone(),
-            self.annotations.clone(),
-            self.documentation.clone(),
-        );
-
-        // Instantiate any monomorphs for any generic paths we may have just created.
-        monomorph.add_monomorphs(library, out);
-
-        out.insert_typedef(self, monomorph, generic_values.to_owned());
     }
 }
 
@@ -198,16 +132,12 @@ impl Source for Typedef {
 
         self.documentation.write(config, out);
 
+        write!(out, "type {}*", self.export_name());
+
         self.generic_params.write(config, out);
 
-        if config.language == Language::C {
-            out.write("typedef ");
-            (self.export_name().to_owned(), self.aliased.clone()).write(config, out);
-        } else {
-            write!(out, "using {} = ", self.export_name());
-            self.aliased.write(config, out);
-        }
-        out.write(";");
+        out.write(" = ");
+        self.aliased.write(config, out);
 
         condition.write_after(config, out);
     }

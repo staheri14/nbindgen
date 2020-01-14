@@ -1,14 +1,10 @@
 [export.body]
 "MyFancyStruct" = """
-#ifdef __cplusplus
-  inline void foo();
-#endif
+  foo: proc()
 """
 
 "MyFancyEnum" = """
-#ifdef __cplusplus
-  inline void wohoo();
-#endif
+  wofoo: proc()
 """
 
 "MyCLikeEnum" = """
@@ -16,5 +12,5 @@
 """
 
 "MyUnion" = """
-  int32_t extra_member; // yolo
+  extra_member: int32 # yolo
 """

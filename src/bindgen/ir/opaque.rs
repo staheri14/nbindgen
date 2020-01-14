@@ -6,16 +6,13 @@ use std::io::Write;
 
 use syn;
 
-use crate::bindgen::config::{Config, Language};
-use crate::bindgen::declarationtyperesolver::DeclarationTypeResolver;
+use crate::bindgen::config::Config;
 use crate::bindgen::dependencies::Dependencies;
 use crate::bindgen::ir::{
     AnnotationSet, Cfg, ConditionWrite, Documentation, GenericParams, Item, ItemContainer, Path,
-    ToCondition, Type,
+    ToCondition,
 };
 use crate::bindgen::library::Library;
-use crate::bindgen::mangle;
-use crate::bindgen::monomorph::Monomorphs;
 use crate::bindgen::writer::{Source, SourceWriter};
 
 #[derive(Debug, Clone)]
@@ -88,46 +85,11 @@ impl Item for OpaqueItem {
         ItemContainer::OpaqueItem(self.clone())
     }
 
-    fn collect_declaration_types(&self, resolver: &mut DeclarationTypeResolver) {
-        resolver.add_struct(&self.path);
-    }
-
     fn rename_for_config(&mut self, config: &Config) {
         config.export.rename(&mut self.export_name);
     }
 
     fn add_dependencies(&self, _: &Library, _: &mut Dependencies) {}
-
-    fn instantiate_monomorph(
-        &self,
-        generic_values: &[Type],
-        _library: &Library,
-        out: &mut Monomorphs,
-    ) {
-        assert!(
-            self.generic_params.len() > 0,
-            "{} is not generic",
-            self.path
-        );
-        assert!(
-            self.generic_params.len() == generic_values.len(),
-            "{} has {} params but is being instantiated with {} values",
-            self.path,
-            self.generic_params.len(),
-            generic_values.len(),
-        );
-
-        let mangled_path = mangle::mangle_path(&self.path, generic_values);
-        let monomorph = OpaqueItem::new(
-            mangled_path,
-            GenericParams::default(),
-            self.cfg.clone(),
-            self.annotations.clone(),
-            self.documentation.clone(),
-        );
-
-        out.insert_opaque(self, monomorph, generic_values.to_owned());
-    }
 }
 
 impl Source for OpaqueItem {
@@ -137,18 +99,11 @@ impl Source for OpaqueItem {
 
         self.documentation.write(config, out);
 
+        write!(out, "type {}*", self.export_name());
+
         self.generic_params.write(config, out);
 
-        if config.style.generate_typedef() && config.language == Language::C {
-            write!(
-                out,
-                "typedef struct {} {};",
-                self.export_name(),
-                self.export_name()
-            );
-        } else {
-            write!(out, "struct {};", self.export_name());
-        }
+        out.write(" {.incompleteStruct.} = object");
 
         condition.write_after(config, out);
     }

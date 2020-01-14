@@ -6,13 +6,11 @@ use std::collections::HashMap;
 use std::mem;
 
 use crate::bindgen::bindings::Bindings;
-use crate::bindgen::config::{Config, Language};
-use crate::bindgen::declarationtyperesolver::DeclarationTypeResolver;
+use crate::bindgen::config::Config;
 use crate::bindgen::dependencies::Dependencies;
 use crate::bindgen::error::Error;
 use crate::bindgen::ir::{Constant, Enum, Function, Item, ItemContainer, ItemMap};
 use crate::bindgen::ir::{OpaqueItem, Path, Static, Struct, Typedef, Union};
-use crate::bindgen::monomorph::Monomorphs;
 use crate::bindgen::ItemType;
 
 #[derive(Debug, Clone)]
@@ -58,11 +56,6 @@ impl Library {
         self.functions.sort_by(|x, y| x.path.cmp(&y.path));
         self.transfer_annotations();
         self.simplify_standard_types();
-
-        if self.config.language == Language::C {
-            self.instantiate_monomorphs();
-            self.resolve_declaration_types();
-        }
 
         self.rename_items();
 
@@ -289,49 +282,6 @@ impl Library {
         }
     }
 
-    fn resolve_declaration_types(&mut self) {
-        if self.config.style.generate_typedef() {
-            return;
-        }
-
-        let mut resolver = DeclarationTypeResolver::new();
-
-        self.structs.for_all_items(|x| {
-            x.collect_declaration_types(&mut resolver);
-        });
-
-        self.opaque_items.for_all_items(|x| {
-            x.collect_declaration_types(&mut resolver);
-        });
-
-        self.enums.for_all_items(|x| {
-            x.collect_declaration_types(&mut resolver);
-        });
-
-        self.unions.for_all_items(|x| {
-            x.collect_declaration_types(&mut resolver);
-        });
-
-        self.enums
-            .for_all_items_mut(|x| x.resolve_declaration_types(&resolver));
-
-        self.structs
-            .for_all_items_mut(|x| x.resolve_declaration_types(&resolver));
-
-        self.unions
-            .for_all_items_mut(|x| x.resolve_declaration_types(&resolver));
-
-        self.typedefs
-            .for_all_items_mut(|x| x.resolve_declaration_types(&resolver));
-
-        self.globals
-            .for_all_items_mut(|x| x.resolve_declaration_types(&resolver));
-
-        for item in &mut self.functions {
-            item.resolve_declaration_types(&resolver);
-        }
-    }
-
     fn simplify_standard_types(&mut self) {
         self.structs.for_all_items_mut(|x| {
             x.simplify_standard_types();
@@ -347,64 +297,6 @@ impl Library {
         });
         for x in &mut self.functions {
             x.simplify_standard_types();
-        }
-    }
-
-    fn instantiate_monomorphs(&mut self) {
-        // Collect a list of monomorphs
-        let mut monomorphs = Monomorphs::default();
-
-        self.structs.for_all_items(|x| {
-            x.add_monomorphs(self, &mut monomorphs);
-        });
-        self.unions.for_all_items(|x| {
-            x.add_monomorphs(self, &mut monomorphs);
-        });
-        self.enums.for_all_items(|x| {
-            x.add_monomorphs(self, &mut monomorphs);
-        });
-        self.typedefs.for_all_items(|x| {
-            x.add_monomorphs(self, &mut monomorphs);
-        });
-        for x in &self.functions {
-            x.add_monomorphs(self, &mut monomorphs);
-        }
-
-        // Insert the monomorphs into self
-        for monomorph in monomorphs.drain_structs() {
-            self.structs.try_insert(monomorph);
-        }
-        for monomorph in monomorphs.drain_unions() {
-            self.unions.try_insert(monomorph);
-        }
-        for monomorph in monomorphs.drain_opaques() {
-            self.opaque_items.try_insert(monomorph);
-        }
-        for monomorph in monomorphs.drain_typedefs() {
-            self.typedefs.try_insert(monomorph);
-        }
-        for monomorph in monomorphs.drain_enums() {
-            self.enums.try_insert(monomorph);
-        }
-
-        // Remove structs and opaque items that are generic
-        self.opaque_items.filter(|x| x.generic_params.len() > 0);
-        self.structs.filter(|x| x.generic_params.len() > 0);
-        self.unions.filter(|x| x.generic_params.len() > 0);
-        self.enums.filter(|x| x.generic_params.len() > 0);
-        self.typedefs.filter(|x| x.generic_params.len() > 0);
-
-        // Mangle the paths that remain
-        self.unions
-            .for_all_items_mut(|x| x.mangle_paths(&monomorphs));
-        self.structs
-            .for_all_items_mut(|x| x.mangle_paths(&monomorphs));
-        self.enums
-            .for_all_items_mut(|x| x.mangle_paths(&monomorphs));
-        self.typedefs
-            .for_all_items_mut(|x| x.mangle_paths(&monomorphs));
-        for x in &mut self.functions {
-            x.mangle_paths(&monomorphs);
         }
     }
 }

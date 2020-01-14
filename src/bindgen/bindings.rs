@@ -10,7 +10,7 @@ use std::io::{Read, Write};
 use std::path;
 use std::rc::Rc;
 
-use crate::bindgen::config::{Config, Language};
+use crate::bindgen::config::Config;
 use crate::bindgen::ir::{
     Constant, Function, ItemContainer, ItemMap, Path as BindgenPath, Static, Struct,
 };
@@ -27,12 +27,6 @@ pub struct Bindings {
     constants: Vec<Constant>,
     items: Vec<ItemContainer>,
     functions: Vec<Function>,
-}
-
-#[derive(PartialEq)]
-enum NamespaceOperation {
-    Open,
-    Close,
 }
 
 impl Bindings {
@@ -126,18 +120,12 @@ impl Bindings {
             write!(out, "{}", f);
             out.new_line();
         }
-        if let Some(ref f) = self.config.include_guard {
-            out.new_line_if_not_start();
-            write!(out, "#ifndef {}", f);
-            out.new_line();
-            write!(out, "#define {}", f);
-            out.new_line();
-        }
+
         if self.config.include_version {
             out.new_line_if_not_start();
             write!(
                 out,
-                "/* Generated with cbindgen:{} */",
+                "# Generated with nbindgen:{}",
                 crate::bindgen::config::VERSION
             );
             out.new_line();
@@ -149,7 +137,7 @@ impl Bindings {
         }
 
         if self.config.no_includes
-            && self.config.sys_includes.is_empty()
+            && self.config.imports.is_empty()
             && self.config.includes.is_empty()
         {
             return;
@@ -158,41 +146,16 @@ impl Bindings {
         out.new_line_if_not_start();
 
         if !self.config.no_includes {
-            if self.config.language == Language::C {
-                out.write("#include <stdarg.h>");
-                out.new_line();
-                out.write("#include <stdbool.h>");
-                out.new_line();
-                out.write("#include <stdint.h>");
-                out.new_line();
-                out.write("#include <stdlib.h>");
-                out.new_line();
-            } else {
-                out.write("#include <cstdarg>");
-                out.new_line();
-                out.write("#include <cstdint>");
-                out.new_line();
-                out.write("#include <cstdlib>");
-                out.new_line();
-                out.write("#include <new>");
-                out.new_line();
-                if self.config.enumeration.cast_assert_name.is_none()
-                    && (self.config.enumeration.derive_mut_casts
-                        || self.config.enumeration.derive_const_casts)
-                {
-                    out.write("#include <cassert>");
-                    out.new_line();
-                }
-            }
+            // TODO: standard imports needed?
         }
 
-        for include in &self.config.sys_includes {
-            write!(out, "#include <{}>", include);
+        for import in &self.config.imports {
+            write!(out, "import {}", import);
             out.new_line();
         }
 
         for include in &self.config.includes {
-            write!(out, "#include \"{}\"", include);
+            write!(out, "include {}", include);
             out.new_line();
         }
     }
@@ -202,8 +165,6 @@ impl Bindings {
 
         self.write_headers(&mut out);
 
-        self.open_namespaces(&mut out);
-
         for constant in &self.constants {
             if constant.ty.is_primitive_or_ptr_primitive() {
                 out.new_line_if_not_start();
@@ -212,27 +173,31 @@ impl Bindings {
             }
         }
 
-        for item in &self.items {
-            if item
-                .deref()
-                .annotations()
-                .bool("no-export")
-                .unwrap_or(false)
-            {
-                continue;
-            }
-
+        if self.items.len() > 0 {
             out.new_line_if_not_start();
-            match *item {
-                ItemContainer::Constant(..) => unreachable!(),
-                ItemContainer::Static(..) => unreachable!(),
-                ItemContainer::Enum(ref x) => x.write(&self.config, &mut out),
-                ItemContainer::Struct(ref x) => x.write(&self.config, &mut out),
-                ItemContainer::Union(ref x) => x.write(&self.config, &mut out),
-                ItemContainer::OpaqueItem(ref x) => x.write(&self.config, &mut out),
-                ItemContainer::Typedef(ref x) => x.write(&self.config, &mut out),
+
+            for item in &self.items {
+                if item
+                    .deref()
+                    .annotations()
+                    .bool("no-export")
+                    .unwrap_or(false)
+                {
+                    continue;
+                }
+
+                out.new_line();
+                match *item {
+                    ItemContainer::Constant(..) => unreachable!(),
+                    ItemContainer::Static(..) => unreachable!(),
+                    ItemContainer::Enum(ref x) => x.write(&self.config, &mut out),
+                    ItemContainer::Struct(ref x) => x.write(&self.config, &mut out),
+                    ItemContainer::Union(ref x) => x.write(&self.config, &mut out),
+                    ItemContainer::OpaqueItem(ref x) => x.write(&self.config, &mut out),
+                    ItemContainer::Typedef(ref x) => x.write(&self.config, &mut out),
+                }
+                out.new_line();
             }
-            out.new_line();
         }
 
         for constant in &self.constants {
@@ -244,32 +209,6 @@ impl Bindings {
         }
 
         if !self.functions.is_empty() || !self.globals.is_empty() {
-            if self.config.language == Language::C && self.config.cpp_compat {
-                out.new_line_if_not_start();
-                out.write("#ifdef __cplusplus");
-            }
-
-            if self.config.language == Language::Cxx {
-                if let Some(ref using_namespaces) = self.config.using_namespaces {
-                    for namespace in using_namespaces {
-                        out.new_line();
-                        write!(out, "using namespace {};", namespace);
-                    }
-                    out.new_line();
-                }
-            }
-
-            if self.config.language == Language::Cxx || self.config.cpp_compat {
-                out.new_line();
-                out.write("extern \"C\" {");
-                out.new_line();
-            }
-
-            if self.config.language == Language::C && self.config.cpp_compat {
-                out.write("#endif // __cplusplus");
-                out.new_line();
-            }
-
             for global in &self.globals {
                 out.new_line_if_not_start();
                 global.write(&self.config, &mut out);
@@ -281,94 +220,12 @@ impl Bindings {
                 function.write(&self.config, &mut out);
                 out.new_line();
             }
-
-            if self.config.language == Language::C && self.config.cpp_compat {
-                out.new_line();
-                out.write("#ifdef __cplusplus");
-            }
-
-            if self.config.language == Language::Cxx || self.config.cpp_compat {
-                out.new_line();
-                out.write("} // extern \"C\"");
-                out.new_line();
-            }
-
-            if self.config.language == Language::C && self.config.cpp_compat {
-                out.write("#endif // __cplusplus");
-                out.new_line();
-            }
         }
 
-        self.close_namespaces(&mut out);
-
-        if let Some(ref f) = self.config.include_guard {
-            out.new_line_if_not_start();
-            if self.config.language == Language::C {
-                write!(out, "#endif /* {} */", f);
-            } else {
-                write!(out, "#endif // {}", f);
-            }
-            out.new_line();
-        }
         if let Some(ref f) = self.config.trailer {
             out.new_line_if_not_start();
             write!(out, "{}", f);
             out.new_line();
         }
-    }
-
-    fn all_namespaces(&self) -> Vec<&str> {
-        if self.config.language != Language::Cxx && !self.config.cpp_compat {
-            return vec![];
-        }
-        let mut ret = vec![];
-        if let Some(ref namespace) = self.config.namespace {
-            ret.push(&**namespace);
-        }
-        if let Some(ref namespaces) = self.config.namespaces {
-            for namespace in namespaces {
-                ret.push(&**namespace);
-            }
-        }
-        ret
-    }
-
-    fn open_close_namespaces<F: Write>(&self, op: NamespaceOperation, out: &mut SourceWriter<F>) {
-        let mut namespaces = self.all_namespaces();
-        if namespaces.is_empty() {
-            return;
-        }
-
-        if op == NamespaceOperation::Close {
-            namespaces.reverse();
-        }
-
-        let write_ifdefs = self.config.cpp_compat && self.config.language == Language::C;
-        if write_ifdefs {
-            out.new_line_if_not_start();
-            out.write("#ifdef __cplusplus");
-        }
-
-        for namespace in namespaces {
-            out.new_line();
-            match op {
-                NamespaceOperation::Open => write!(out, "namespace {} {{", namespace),
-                NamespaceOperation::Close => write!(out, "}} // namespace {}", namespace),
-            }
-        }
-
-        out.new_line();
-        if write_ifdefs {
-            out.write("#endif // __cplusplus");
-            out.new_line();
-        }
-    }
-
-    pub(crate) fn open_namespaces<F: Write>(&self, out: &mut SourceWriter<F>) {
-        self.open_close_namespaces(NamespaceOperation::Open, out);
-    }
-
-    pub(crate) fn close_namespaces<F: Write>(&self, out: &mut SourceWriter<F>) {
-        self.open_close_namespaces(NamespaceOperation::Close, out);
     }
 }

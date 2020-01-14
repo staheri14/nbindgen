@@ -22,9 +22,9 @@ pub const XFALSE: i64 = (0 << SHIFT) | XBOOL;
 pub const XTRUE: i64 = 1 << (SHIFT | XBOOL);
 
 #[repr(C)]
-struct Foo {
+struct TFoo {
     x: [i32; FOO],
 }
 
 #[no_mangle]
-pub extern "C" fn root(x: Foo) { }
+pub extern "C" fn root(x: TFoo) { }
